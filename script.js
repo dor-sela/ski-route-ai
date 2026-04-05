@@ -2,15 +2,16 @@
   "use strict";
 
   /** @typedef {{ id: string, lat: number, lon: number }} GraphNode */
-  /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, difficulty: string|null, tags: Record<string,string> }} GraphEdge */
+  /** @typedef {{ lat: number, lon: number }} LatLon */
+  /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, difficulty: string|null, tags: Record<string,string>, polyline: LatLon[] }} GraphEdge */
 
   const RESORTS = [
     {
       id: "val-thorens",
       name: "Val Thorens (France)",
-      center: [45.298, 6.581],
-      zoom: 13,
-      bbox: [45.275, 6.52, 45.32, 6.64],
+      center: [45.295, 6.58],
+      zoom: 14,
+      bbox: [45.28, 6.56, 45.31, 6.6],
     },
     {
       id: "chamonix",
@@ -44,21 +45,55 @@
 
   const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
+  /** Round for stable intersection keys (~1.1 m). */
+  function coordKey(lat, lon) {
+    const rLat = Math.round(lat * 1e5) / 1e5;
+    const rLon = Math.round(lon * 1e5) / 1e5;
+    return rLat + "," + rLon;
+  }
+
+  /**
+   * @param {number[]} bbox [south, west, north, east]
+   * @returns {Promise<any>}
+   */
+  async function fetchResortData(bbox) {
+    const [s, w, n, e] = bbox;
+    const q =
+      `[out:json][timeout:125];
+(
+  way["piste:type"="downhill"](${s},${w},${n},${e});
+  way["aerialway"](${s},${w},${n},${e});
+);
+out geom;`;
+    const body = "data=" + encodeURIComponent(q);
+    const res = await fetch(OVERPASS_URL, {
+      method: "POST",
+      body,
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+    });
+    if (!res.ok) throw new Error("Overpass HTTP " + res.status);
+    return res.json();
+  }
+
   /** @type {L.Map|null} */
   let map = null;
   /** @type {L.TileLayer|null} */
   let baseLayer = null;
+
   let graphLayer = null;
   let routeLayer = null;
-  /** @type {L.Marker|null} */
-  let startMarker = null;
-  /** @type {L.Marker|null} */
-  let endMarker = null;
 
   /** @type {Map<string, GraphNode>} */
   let nodeStore = new Map();
   /** @type {Map<string, GraphEdge[]>} */
   let adjacency = new Map();
+
+  /** Raw ways for styling (from last build). */
+  /** @type {{ coords: LatLon[], tags: Record<string,string>, isLift: boolean, diffNorm: string|null }[]} */
+  let lastParsedWays = [];
+
+  /** @type {Map<string, L.CircleMarker>} */
+  let nodeMarkers = new Map();
 
   let clickStage = 0;
   /** @type {string|null} */
@@ -69,7 +104,6 @@
   /** @type {string} */
   let currentResortId = RESORTS[0].id;
 
-  // --- DOM ---
   const $resort = document.getElementById("resort-select");
   const $time = document.getElementById("time-select");
   const $chat = document.getElementById("chat-input");
@@ -77,6 +111,8 @@
   const $out = document.getElementById("agent-output");
   const $loadingText = document.getElementById("loading-text");
   const $spinner = document.getElementById("loading-spinner");
+  const $startDisp = document.getElementById("start-node-display");
+  const $endDisp = document.getElementById("end-node-display");
 
   function setLoading(on, msg) {
     if (on) {
@@ -91,28 +127,6 @@
     }
   }
 
-  function buildOverpassQuery(bbox) {
-    const [s, w, n, e] = bbox;
-    return `[out:json][timeout:120];
-(
-  way["piste:type"="downhill"](${s},${w},${n},${e});
-  way["aerialway"](${s},${w},${n},${e});
-);
-(._;>;);
-out body;`;
-  }
-
-  async function fetchResortData(bbox) {
-    const body = "data=" + encodeURIComponent(buildOverpassQuery(bbox));
-    const res = await fetch(OVERPASS_URL, {
-      method: "POST",
-      body,
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-    });
-    if (!res.ok) throw new Error("Overpass HTTP " + res.status);
-    return res.json();
-  }
-
   function haversineMeters(lat1, lon1, lat2, lon2) {
     const R = 6371000;
     const toRad = (x) => (x * Math.PI) / 180;
@@ -124,6 +138,16 @@ out body;`;
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
   }
 
+  function polylineLengthMeters(coords) {
+    let len = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const a = coords[i];
+      const b = coords[i + 1];
+      len += haversineMeters(a.lat, a.lon, b.lat, b.lon);
+    }
+    return len;
+  }
+
   function normalizeDifficulty(tags) {
     const raw = (tags["piste:difficulty"] || tags["snowmobile:difficulty"] || "").toLowerCase();
     if (!raw) return null;
@@ -132,6 +156,24 @@ out body;`;
     if (["advanced", "difficult", "red"].includes(raw)) return "advanced";
     if (["expert", "extreme", "freeride", "black", "yes"].includes(raw)) return "expert";
     return "intermediate";
+  }
+
+  function pisteStyle(diffNorm, isLift) {
+    if (isLift) {
+      return { color: "#94a3b8", weight: 3, opacity: 0.9, dashArray: "10 8", lineCap: "round" };
+    }
+    switch (diffNorm) {
+      case "easy":
+        return { color: "#22c55e", weight: 3, opacity: 0.92 };
+      case "intermediate":
+        return { color: "#2563eb", weight: 3, opacity: 0.92 };
+      case "advanced":
+        return { color: "#dc2626", weight: 3, opacity: 0.92 };
+      case "expert":
+        return { color: "#0f172a", weight: 4, opacity: 0.95 };
+      default:
+        return { color: "#64748b", weight: 2.5, opacity: 0.85 };
+    }
   }
 
   function parseAgentText(text) {
@@ -147,10 +189,6 @@ out body;`;
     return { skill, goal };
   }
 
-  /**
-   * @param {string} timeOfDay "HH:MM"
-   * @param {boolean} isLift
-   */
   function calculateCongestion(timeOfDay, isLift) {
     const parts = (timeOfDay || "12:00").split(":");
     const h = parseInt(parts[0], 10) || 12;
@@ -166,10 +204,6 @@ out body;`;
     return 1;
   }
 
-  /**
-   * @param {string|null} diffNorm
-   * @param {{ skill: string, goal: string }} nlp
-   */
   function agentPenalty(diffNorm, nlp) {
     if (!diffNorm) return 1;
     let m = 1;
@@ -200,13 +234,11 @@ out body;`;
     return edge.lengthMeters * cong * pen;
   }
 
-  /** Min-heap of { d, id } */
   class MinHeap {
     constructor() {
       /** @type {{d:number, id:string}[]} */
       this.h = [];
     }
-    /** @param {number} d @param {string} id */
     push(d, id) {
       this.h.push({ d, id });
       this._up(this.h.length - 1);
@@ -247,17 +279,11 @@ out body;`;
     }
   }
 
-  /**
-   * @param {Map<string, GraphEdge[]>} graph
-   * @param {string} start
-   * @param {string} end
-   * @param {(e: GraphEdge) => number} weightFn
-   */
   function dijkstra(graph, start, end, weightFn) {
     const dist = new Map();
     const prev = new Map();
     for (const k of graph.keys()) dist.set(k, Infinity);
-    if (!graph.has(start) || !graph.has(end)) return { path: null, dist: Infinity };
+    if (!graph.has(start) || !graph.has(end)) return { path: null, edges: null, dist: Infinity };
 
     dist.set(start, 0);
     const heap = new MinHeap();
@@ -285,71 +311,122 @@ out body;`;
     }
 
     const finalD = dist.get(end);
-    if (finalD === Infinity) return { path: null, dist: Infinity };
+    if (finalD === Infinity) return { path: null, edges: null, dist: Infinity };
 
     const nodes = [];
-    const edges = [];
+    const pathEdges = [];
     let cur = end;
     while (cur && cur !== start) {
       nodes.push(cur);
       const p = prev.get(cur);
-      if (!p) return { path: null, dist: Infinity };
-      edges.push(p.edge);
+      if (!p) return { path: null, edges: null, dist: Infinity };
+      pathEdges.push(p.edge);
       cur = p.from;
     }
     nodes.push(start);
     nodes.reverse();
-    edges.reverse();
-    return { path: nodes, edges, dist: finalD };
+    pathEdges.reverse();
+    return { path: nodes, edges: pathEdges, dist: finalD };
   }
 
-  function addUndirectedEdge(a, b, edgeMeta) {
+  function addUndirectedEdge(a, b, metaToB, metaToA) {
     if (!adjacency.has(a)) adjacency.set(a, []);
     if (!adjacency.has(b)) adjacency.set(b, []);
-    adjacency.get(a).push({ ...edgeMeta, to: b });
-    adjacency.get(b).push({ ...edgeMeta, to: a });
+    adjacency.get(a).push({ ...metaToB, to: b });
+    adjacency.get(b).push({ ...metaToA, to: a });
   }
 
-  function buildGraphFromOverpass(json) {
+  function reversePolyline(pl) {
+    return pl.slice().reverse();
+  }
+
+  /**
+   * Build graph from Overpass JSON with `out geom`.
+   * Vertices: way endpoints, lift endpoints, coordinate shared by ≥2 ways.
+   */
+  function buildGraphFromOverpassGeom(json) {
     nodeStore = new Map();
     adjacency = new Map();
+    lastParsedWays = [];
+
     const elements = json.elements || [];
-    const nodeById = new Map();
+    /** @type {{ coords: LatLon[], tags: Record<string,string>, isLift: boolean, diffNorm: string|null }[]} */
+    const parsed = [];
 
     for (const el of elements) {
-      if (el.type === "node" && el.lat != null && el.lon != null) {
-        const id = String(el.id);
-        nodeById.set(id, el);
-        nodeStore.set(id, { id, lat: el.lat, lon: el.lon });
-      }
-    }
-
-    for (const el of elements) {
-      if (el.type !== "way" || !el.nodes || el.nodes.length < 2) continue;
+      if (el.type !== "way" || !el.geometry || el.geometry.length < 2) continue;
       const tags = el.tags || {};
       const isDownhill = tags["piste:type"] === "downhill";
       const isLift = tags["aerialway"] != null && tags["aerialway"] !== "no";
       if (!isDownhill && !isLift) continue;
-
-      const diff = isDownhill ? normalizeDifficulty(tags) : null;
-
-      for (let i = 0; i < el.nodes.length - 1; i++) {
-        const na = String(el.nodes[i]);
-        const nb = String(el.nodes[i + 1]);
-        const A = nodeById.get(na);
-        const B = nodeById.get(nb);
-        if (!A || !B) continue;
-        const len = haversineMeters(A.lat, A.lon, B.lat, B.lon);
-        if (len < 0.5) continue;
-        const meta = {
-          lengthMeters: len,
-          isLift,
-          difficulty: diff,
-          tags,
-        };
-        addUndirectedEdge(na, nb, meta);
-      }
+      const coords = el.geometry.map((g) => ({ lat: g.lat, lon: g.lon }));
+      const diffNorm = isDownhill ? normalizeDifficulty(tags) : null;
+      parsed.push({ coords, tags, isLift, diffNorm });
     }
+
+    lastParsedWays = parsed;
+
+    if (!parsed.length) return;
+
+    /** @type {Map<string, Set<number>>} */
+    const keyToWayIdx = new Map();
+    parsed.forEach((way, wi) => {
+      way.coords.forEach((pt) => {
+        const k = coordKey(pt.lat, pt.lon);
+        if (!keyToWayIdx.has(k)) keyToWayIdx.set(k, new Set());
+        keyToWayIdx.get(k).add(wi);
+      });
+    });
+
+    const intersectionKeys = new Set();
+    keyToWayIdx.forEach((set, k) => {
+      if (set.size >= 2) intersectionKeys.add(k);
+    });
+
+    /** @param {typeof parsed[number]} way @param {number} idx */
+    function isGraphVertex(way, idx) {
+      const pt = way.coords[idx];
+      const k = coordKey(pt.lat, pt.lon);
+      const atEnd = idx === 0 || idx === way.coords.length - 1;
+      const inter = intersectionKeys.has(k);
+      if (way.isLift) return atEnd || inter;
+      return atEnd || inter;
+    }
+
+    parsed.forEach((way) => {
+      const idxs = [];
+      for (let i = 0; i < way.coords.length; i++) {
+        if (isGraphVertex(way, i)) idxs.push(i);
+      }
+      if (idxs.length < 2) return;
+
+      for (let t = 0; t < idxs.length - 1; t++) {
+        const i0 = idxs[t];
+        const i1 = idxs[t + 1];
+        if (i1 <= i0) continue;
+        const aPt = way.coords[i0];
+        const bPt = way.coords[i1];
+        const ka = coordKey(aPt.lat, aPt.lon);
+        const kb = coordKey(bPt.lat, bPt.lon);
+        if (ka === kb) continue;
+
+        const forward = way.coords.slice(i0, i1 + 1).map((p) => ({ lat: p.lat, lon: p.lon }));
+        const backward = reversePolyline(forward);
+        const len = polylineLengthMeters(forward);
+        if (len < 0.25) continue;
+
+        if (!nodeStore.has(ka)) nodeStore.set(ka, { id: ka, lat: aPt.lat, lon: aPt.lon });
+        if (!nodeStore.has(kb)) nodeStore.set(kb, { id: kb, lat: bPt.lat, lon: bPt.lon });
+
+        const base = {
+          lengthMeters: len,
+          isLift: way.isLift,
+          difficulty: way.diffNorm,
+          tags: way.tags,
+        };
+        addUndirectedEdge(ka, kb, { ...base, polyline: forward }, { ...base, polyline: backward });
+      }
+    });
 
     for (const id of [...nodeStore.keys()]) {
       const edges = adjacency.get(id);
@@ -360,61 +437,110 @@ out body;`;
     }
   }
 
-  function nearestNodeId(lat, lon) {
-    let best = null;
-    let bestD = Infinity;
-    for (const n of nodeStore.values()) {
-      const d = haversineMeters(lat, lon, n.lat, n.lon);
-      if (d < bestD) {
-        bestD = d;
-        best = n.id;
-      }
-    }
-    return best;
-  }
-
-  function renderGraphPolylines() {
-    if (graphLayer) {
+  function clearGraphLayer() {
+    if (graphLayer && map) {
       map.removeLayer(graphLayer);
       graphLayer = null;
     }
-    graphLayer = L.layerGroup();
-    const seen = new Set();
-    for (const [u, edges] of adjacency) {
-      const nu = nodeStore.get(u);
-      if (!nu) continue;
-      for (const e of edges) {
-        const key = u < e.to ? u + "|" + e.to : e.to + "|" + u;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const nv = nodeStore.get(e.to);
-        if (!nv) continue;
-        const line = L.polyline(
-          [
-            [nu.lat, nu.lon],
-            [nv.lat, nv.lon],
-          ],
-          {
-            color: e.isLift ? "#64748b" : "#334155",
-            weight: 1,
-            opacity: 0.14,
-          }
-        );
-        graphLayer.addLayer(line);
-      }
+    nodeMarkers.clear();
+  }
+
+  function refreshNodeMarkerStyles() {
+    nodeMarkers.forEach((m, id) => applyNodeMarkerStyle(id, m));
+  }
+
+  function applyNodeMarkerStyle(nodeId, marker) {
+    const isStart = nodeId === startNodeId;
+    const isEnd = nodeId === endNodeId;
+    if (isStart) {
+      marker.setStyle({
+        radius: 9,
+        color: "#15803d",
+        weight: 3,
+        fillColor: "#4ade80",
+        fillOpacity: 0.95,
+      });
+    } else if (isEnd) {
+      marker.setStyle({
+        radius: 9,
+        color: "#b91c1c",
+        weight: 3,
+        fillColor: "#f87171",
+        fillOpacity: 0.95,
+      });
+    } else {
+      marker.setStyle({
+        radius: 6,
+        color: "#4338ca",
+        weight: 2,
+        fillColor: "#a5b4fc",
+        fillOpacity: 0.9,
+      });
     }
+  }
+
+  function nodeLabel(nodeId) {
+    const n = nodeStore.get(nodeId);
+    if (!n) return "—";
+    return nodeId + "  (" + n.lat.toFixed(5) + ", " + n.lon.toFixed(5) + ")";
+  }
+
+  function updateSelectionInputs() {
+    $startDisp.value = startNodeId ? nodeLabel(startNodeId) : "—";
+    $endDisp.value = endNodeId ? nodeLabel(endNodeId) : "—";
+  }
+
+  function onVertexMarkerClick(nodeId, ev) {
+    L.DomEvent.stopPropagation(ev);
+    const setStart = clickStage % 2 === 0;
+    if (setStart) startNodeId = nodeId;
+    else endNodeId = nodeId;
+    clickStage++;
+    refreshNodeMarkerStyles();
+    updateSelectionInputs();
+    const mk = nodeMarkers.get(nodeId);
+    if (mk) mk.bindPopup(setStart ? "Start" : "End").openPopup();
+  }
+
+  function renderGraphOnMap() {
+    clearGraphLayer();
+    if (!map) return;
+
+    graphLayer = L.layerGroup();
+
+    lastParsedWays.forEach((way) => {
+      const latlngs = way.coords.map((c) => [c.lat, c.lon]);
+      const st = pisteStyle(way.diffNorm, way.isLift);
+      graphLayer.addLayer(L.polyline(latlngs, st));
+    });
+
+    nodeStore.forEach((node, id) => {
+      const marker = L.circleMarker([node.lat, node.lon], {
+        radius: 6,
+        color: "#4338ca",
+        weight: 2,
+        fillColor: "#a5b4fc",
+        fillOpacity: 0.9,
+      });
+      marker.on("click", (e) => onVertexMarkerClick(id, e));
+      marker.on("mouseover", () => marker.setStyle({ weight: 3 }));
+      marker.on("mouseout", () => applyNodeMarkerStyle(id, marker));
+      graphLayer.addLayer(marker);
+      nodeMarkers.set(id, marker);
+    });
+
+    refreshNodeMarkerStyles();
     graphLayer.addTo(map);
   }
 
   function clearRoute() {
-    if (routeLayer) {
+    if (routeLayer && map) {
       map.removeLayer(routeLayer);
       routeLayer = null;
     }
   }
 
-  /** Summarize piste difficulties along the chosen path (undirected edge pick). */
-  function analyzePathEdges(pathNodeIds) {
+  function analyzePathFromNodePath(pathNodeIds) {
     const c = { lift: 0, easy: 0, intermediate: 0, advanced: 0, expert: 0, unknown: 0 };
     for (let i = 0; i < pathNodeIds.length - 1; i++) {
       const u = pathNodeIds[i];
@@ -436,17 +562,66 @@ out body;`;
     return c;
   }
 
-  function drawRoute(pathNodeIds, nlp, timeOfDay) {
+  /** @param {GraphEdge[]} pathEdges */
+  function analyzePathFromEdges(pathEdges) {
+    const c = { lift: 0, easy: 0, intermediate: 0, advanced: 0, expert: 0, unknown: 0 };
+    for (const e of pathEdges) {
+      if (e.isLift) {
+        c.lift++;
+        continue;
+      }
+      const d = e.difficulty;
+      if (!d) c.unknown++;
+      else if (d === "easy") c.easy++;
+      else if (d === "intermediate") c.intermediate++;
+      else if (d === "advanced") c.advanced++;
+      else if (d === "expert") c.expert++;
+    }
+    return c;
+  }
+
+  /** @param {GraphEdge[]|null} pathEdges */
+  function mergePathLatLngs(pathEdges, pathNodeIds) {
+    if (!pathEdges || !pathEdges.length) {
+      return pathNodeIds.map((id) => {
+        const n = nodeStore.get(id);
+        return [n.lat, n.lon];
+      });
+    }
+    const out = [];
+    for (let i = 0; i < pathEdges.length; i++) {
+      const pl = pathEdges[i].polyline;
+      if (!pl || pl.length === 0) continue;
+      const seg = pl.map((p) => [p.lat, p.lon]);
+      if (out.length === 0) out.push(...seg);
+      else {
+        const la = out[out.length - 1];
+        const fb = seg[0];
+        const dup =
+          Math.abs(la[0] - fb[0]) < 1e-7 && Math.abs(la[1] - fb[1]) < 1e-7;
+        if (dup) for (let j = 1; j < seg.length; j++) out.push(seg[j]);
+        else out.push(...seg);
+      }
+    }
+    if (out.length < 2) {
+      return pathNodeIds.map((id) => {
+        const n = nodeStore.get(id);
+        return [n.lat, n.lon];
+      });
+    }
+    return out;
+  }
+
+  /** @param {string[]|null} pathNodeIds @param {GraphEdge[]|null} pathEdges */
+  function drawRoute(pathNodeIds, pathEdges, nlp, timeOfDay) {
     clearRoute();
     if (!pathNodeIds || pathNodeIds.length < 2) return;
+    const latlngs = mergePathLatLngs(pathEdges, pathNodeIds);
+
     routeLayer = L.layerGroup();
-    const latlngs = pathNodeIds.map((id) => {
-      const n = nodeStore.get(id);
-      return [n.lat, n.lon];
-    });
     const glow = L.polyline(latlngs, {
       color: "#facc15",
-      weight: 10,
+      weight: 16,
       opacity: 0.35,
       lineCap: "round",
       lineJoin: "round",
@@ -454,17 +629,20 @@ out body;`;
     const core = L.polyline(latlngs, {
       className: "route-glow",
       color: "#eab308",
-      weight: 5,
-      opacity: 0.95,
+      weight: 9,
+      opacity: 1,
       lineCap: "round",
       lineJoin: "round",
     });
     routeLayer.addLayer(glow);
     routeLayer.addLayer(core);
     routeLayer.addTo(map);
-    map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40], maxZoom: 15 });
+    map.fitBounds(L.latLngBounds(latlngs), { padding: [48, 48], maxZoom: 16 });
 
-    const edgeStats = analyzePathEdges(pathNodeIds);
+    const edgeStats =
+      pathEdges && pathEdges.length
+        ? analyzePathFromEdges(pathEdges)
+        : analyzePathFromNodePath(pathNodeIds);
     const liftCount = edgeStats.lift;
 
     const parts = [];
@@ -508,39 +686,31 @@ out body;`;
     clearRoute();
     try {
       const data = await fetchResortData(resort.bbox);
-      setLoading(true, "Building graph…");
-      buildGraphFromOverpass(data);
+      setLoading(true, "Building graph from geometry…");
+      buildGraphFromOverpassGeom(data);
       if (nodeStore.size === 0) {
         $out.innerHTML =
-          "<p class='text-amber-400'>No ski data in bbox. Try another resort or zoom area later.</p>";
+          "<p class='text-amber-400'>No ski geometry in this bbox. Try another resort.</p>";
+        clearGraphLayer();
         setLoading(false);
         return;
       }
       if (map && baseLayer) {
         map.setView(resort.center, resort.zoom);
-        renderGraphPolylines();
+        renderGraphOnMap();
       }
       startNodeId = endNodeId = null;
       clickStage = 0;
-      if (startMarker) {
-        map.removeLayer(startMarker);
-        startMarker = null;
-      }
-      if (endMarker) {
-        map.removeLayer(endMarker);
-        endMarker = null;
-      }
-      $out.innerHTML = `<p>Loaded <strong>${nodeStore.size}</strong> nodes and <strong>${adjacency.size}</strong> graph vertices. Click map to set Start and End.</p>`;
+      updateSelectionInputs();
+      $out.innerHTML = `<p>Loaded <strong>${nodeStore.size}</strong> graph nodes and <strong>${lastParsedWays.length}</strong> OSM ways. Click blue <strong>circle markers</strong> to set Start then End.</p>`;
     } catch (err) {
       console.error(err);
       const msg =
         err && err.message
           ? String(err.message)
-          : "Unknown error (CORS or network). Opening via file:// may block fetch; use a local static server.";
+          : "Unknown error (CORS or network). file:// may block fetch — use a static HTTP server.";
       $out.innerHTML =
-        "<p class='text-red-400'>Could not load resort data: " +
-        msg +
-        "</p>";
+        "<p class='text-red-400'>Could not load resort data: " + escapeHtml(msg) + "</p>";
     } finally {
       setLoading(false);
     }
@@ -548,46 +718,25 @@ out body;`;
 
   function initMap() {
     map = L.map("map", { zoomControl: true });
-    baseLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap",
+
+    baseLayer = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+      maxZoom: 17,
+      attribution:
+        'Map: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors,' +
+        ' <a href="http://viewfinderpanoramas.org">SRTM</a> | ' +
+        'Style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> ' +
+        '(<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
     }).addTo(map);
+
+    L.tileLayer("https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      opacity: 0.55,
+      attribution:
+        'Ski slopes overlay: &copy; <a href="https://slopes.waymarkedtrails.org/">Waymarked Trails</a>',
+    }).addTo(map);
+
     const r = RESORTS[0];
     map.setView(r.center, r.zoom);
-
-    map.on("click", (ev) => {
-      if (!nodeStore.size) return;
-      const id = nearestNodeId(ev.latlng.lat, ev.latlng.lng);
-      const n = nodeStore.get(id);
-      if (!n) return;
-
-      if (clickStage % 2 === 0) {
-        startNodeId = id;
-        if (startMarker) map.removeLayer(startMarker);
-        startMarker = L.circleMarker([n.lat, n.lon], {
-          radius: 10,
-          color: "#22c55e",
-          fillColor: "#4ade80",
-          fillOpacity: 0.9,
-        })
-          .addTo(map)
-          .bindPopup("Start")
-          .openPopup();
-      } else {
-        endNodeId = id;
-        if (endMarker) map.removeLayer(endMarker);
-        endMarker = L.circleMarker([n.lat, n.lon], {
-          radius: 10,
-          color: "#ef4444",
-          fillColor: "#f87171",
-          fillOpacity: 0.9,
-        })
-          .addTo(map)
-          .bindPopup("End")
-          .openPopup();
-      }
-      clickStage++;
-    });
   }
 
   function populateSelects() {
@@ -616,11 +765,12 @@ out body;`;
     const timeOfDay = $time.value;
     const nlp = parseAgentText($chat.value);
     if (!startNodeId || !endNodeId) {
-      $out.innerHTML = "<p class='text-amber-400'>Set Start and End by clicking the map twice.</p>";
+      $out.innerHTML =
+        "<p class='text-amber-400'>Set Start and End by clicking two circle markers (nodes) on the map.</p>";
       return;
     }
     if (startNodeId === endNodeId) {
-      $out.innerHTML = "<p class='text-amber-400'>Start and End must be different points.</p>";
+      $out.innerHTML = "<p class='text-amber-400'>Start and End must be different nodes.</p>";
       return;
     }
 
@@ -628,11 +778,11 @@ out body;`;
     const result = dijkstra(adjacency, startNodeId, endNodeId, wfn);
     if (!result.path) {
       $out.innerHTML =
-        "<p class='text-amber-400'>No connected route between the chosen points in the loaded graph.</p>";
+        "<p class='text-amber-400'>No connected route between the selected nodes in the current graph.</p>";
       clearRoute();
       return;
     }
-    drawRoute(result.path, nlp, timeOfDay);
+    drawRoute(result.path, result.edges, nlp, timeOfDay);
   }
 
   populateSelects();

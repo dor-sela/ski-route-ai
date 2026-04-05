@@ -26,7 +26,7 @@
         id="map-hint"
         class="absolute top-3 left-1/2 -translate-x-1/2 z-[500] bg-slate-900/85 backdrop-blur px-4 py-2 rounded-lg border border-slate-600 text-sm pointer-events-none"
       >
-        Click the map: first click = Start, second = End (then again to move Start)
+        Click a graph node (circle): first = Start, second = End; then repeats to move Start
       </div>
     </main>
     <aside
@@ -47,6 +47,30 @@
         id="time-select"
         class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
       ></select>
+
+      <div class="rounded-lg border border-slate-700 bg-slate-900/60 p-3 space-y-2">
+        <h2 class="text-xs uppercase tracking-wide text-slate-400">Selected nodes</h2>
+        <div>
+          <label for="start-node-display" class="text-[11px] text-slate-500">Start</label>
+          <input
+            id="start-node-display"
+            type="text"
+            readonly
+            value="—"
+            class="w-full mt-0.5 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs text-slate-200 font-mono"
+          />
+        </div>
+        <div>
+          <label for="end-node-display" class="text-[11px] text-slate-500">End</label>
+          <input
+            id="end-node-display"
+            type="text"
+            readonly
+            value="—"
+            class="w-full mt-0.5 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs text-slate-200 font-mono"
+          />
+        </div>
+      </div>
 
       <label class="text-xs uppercase tracking-wide text-slate-400">
         Describe your level &amp; goal
@@ -77,7 +101,7 @@
           id="agent-output"
           class="agent-output bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[120px]"
         >
-          Select a resort, set Start and End on the map, optionally describe your goals, then
+          Select a resort, click two graph nodes for Start and End, optionally describe your goals, then
           <strong class="text-sky-400">Find Route</strong>.
         </div>
       </div>
