@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ski Route AI — Vanilla</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="style.css" />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen overflow-hidden">
+  <div class="flex h-screen w-full">
+    <main class="w-[70%] h-full relative shrink-0">
+      <div id="map" class="w-full h-full z-0"></div>
+      <div
+        id="map-hint"
+        class="absolute top-3 left-1/2 -translate-x-1/2 z-[500] bg-slate-900/85 backdrop-blur px-4 py-2 rounded-lg border border-slate-600 text-sm pointer-events-none"
+      >
+        Click the map: first click = Start, second = End (then again to move Start)
+      </div>
+    </main>
+    <aside
+      class="w-[30%] h-full flex flex-col border-l border-slate-700 bg-slate-950 p-4 gap-3 overflow-y-auto shrink-0"
+    >
+      <h1 class="text-lg font-semibold text-white border-b border-slate-700 pb-2">
+        AI Ski Agent
+      </h1>
+
+      <label class="text-xs uppercase tracking-wide text-slate-400">Resort</label>
+      <select
+        id="resort-select"
+        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none"
+      ></select>
+
+      <label class="text-xs uppercase tracking-wide text-slate-400">Time of day</label>
+      <select
+        id="time-select"
+        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+      ></select>
+
+      <label class="text-xs uppercase tracking-wide text-slate-400">
+        Describe your level &amp; goal
+      </label>
+      <textarea
+        id="chat-input"
+        rows="4"
+        placeholder='e.g. "I am a beginner looking for a warmup on easy terrain" or "Expert, training on steep reds"'
+        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm resize-y min-h-[100px] focus:ring-2 focus:ring-sky-500 outline-none placeholder:text-slate-500"
+      ></textarea>
+
+      <button
+        id="find-route"
+        type="button"
+        class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 active:bg-sky-700 font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        Find Route
+      </button>
+
+      <div class="flex items-center gap-2 min-h-[28px]">
+        <div id="loading-spinner" class="loading-spinner hidden" aria-hidden="true"></div>
+        <p id="loading-text" class="text-sm text-slate-400 hidden">Loading resort data…</p>
+      </div>
+
+      <div>
+        <h2 class="text-xs uppercase tracking-wide text-slate-400 mb-2">Agent output</h2>
+        <div
+          id="agent-output"
+          class="agent-output bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[120px]"
+        >
+          Select a resort, set Start and End on the map, optionally describe your goals, then
+          <strong class="text-sky-400">Find Route</strong>.
+        </div>
+      </div>
+    </aside>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
