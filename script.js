@@ -7,6 +7,12 @@
     zermatt: { bbox: '45.98,7.70,46.03,7.77', label: 'Zermatt' },
   };
 
+  const RESORT_DATA_FILES = {
+    'val-thorens': './data/val_thorens.json',
+    bansko: './data/bansko.json',
+    zermatt: './data/zermatt.json',
+  };
+
   function pisteColor(tag) {
     if (!tag) return '#3b82f6';
     const t = String(tag).toLowerCase();
@@ -543,16 +549,14 @@
     });
   }
 
-  async function fetchOverpass() {
-    const bbox = resortBboxString();
-    const q = `[out:json][timeout:25];(way["piste:type"="downhill"](${bbox});way["aerialway"](${bbox}););out geom;`;
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      body: 'data=' + encodeURIComponent(q),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    });
-    if (!res.ok) throw new Error('Overpass: ' + res.status);
-    const data = await res.json();
+  async function fetchResortData() {
+    const selected = el.resort.value;
+    const url = RESORT_DATA_FILES[selected];
+    if (!url) throw new Error('Unknown resort data file: ' + selected);
+    const response = await fetch(url);
+    if (!response.ok)
+      throw new Error('Failed to load resort data: ' + response.status);
+    const data = await response.json();
     return data.elements || [];
   }
 
@@ -725,7 +729,7 @@
     lastForwardPath = null;
     lastReturnPath = null;
     try {
-      const elements = await fetchOverpass();
+      const elements = await fetchResortData();
       const ways = elements.filter((e) => e.type === 'way' && e.geometry);
       rebuildGraph(ways);
       fitResortBounds();
