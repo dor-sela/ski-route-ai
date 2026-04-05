@@ -93,13 +93,22 @@
         </div>
       </div>
 
-      <button
-        id="find-route"
-        type="button"
-        class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 active:bg-sky-700 font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Find Route
-      </button>
+      <div class="grid grid-cols-1 gap-2">
+        <button
+          id="find-route"
+          type="button"
+          class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 active:bg-sky-700 font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Find Route
+        </button>
+        <button
+          id="reset-search"
+          type="button"
+          class="w-full py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 active:bg-slate-800 border border-slate-600 font-medium text-slate-100 transition-colors"
+        >
+          Reset Search
+        </button>
+      </div>
 
       <div class="flex items-center gap-2 min-h-[28px]">
         <div id="loading-spinner" class="loading-spinner hidden" aria-hidden="true"></div>
@@ -108,15 +117,35 @@
 
       <p id="app-hint" class="text-xs text-slate-500 leading-relaxed">
         Select resort, skill, and goal; click two nodes for Start and End; then
-        <strong class="text-sky-400">Find Route</strong>. Only route pistes/lifts stay on the map; the list below updates when a path is found.
+        <strong class="text-sky-400">Find Route</strong>. All pistes stay visible; the yellow glow shows the outbound path. Click the Return Trip box to preview the lift-favoring way back.
       </p>
 
       <div id="agent-output-section" class="agent-output-section hidden">
         <h2 class="text-xs uppercase tracking-wide text-slate-400 mb-2">Route</h2>
+        <p class="text-[11px] text-slate-500 mb-1">Click a step to fly to that node on the map.</p>
         <ul
           id="route-steps"
           class="route-steps-list bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[80px]"
         ></ul>
+
+        <div id="return-trip-section" class="return-trip-section hidden mt-4">
+          <h2 class="text-xs uppercase tracking-wide text-slate-400 mb-1">Return trip</h2>
+          <p class="text-[11px] text-slate-500 mb-2">
+            Lift-heavy route back (downhill edges ×100 in cost). Click the highlighted area to show the cyan return path on the map.
+          </p>
+          <div
+            id="return-trip-panel"
+            class="return-trip-panel bg-slate-900/80 border border-slate-600 rounded-lg p-3 text-sm text-slate-200 cursor-pointer select-none"
+            role="button"
+            tabindex="0"
+            title="Show return path on map"
+          >
+            <div class="text-[10px] uppercase tracking-wide text-cyan-400/90 mb-2 font-semibold">
+              Return trip — click to highlight
+            </div>
+            <ul id="return-trip-steps" class="route-steps-list"></ul>
+          </div>
+        </div>
       </div>
     </aside>
   </div>

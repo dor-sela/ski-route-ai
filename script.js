@@ -82,6 +82,15 @@ out geom;`;
   /** @type {L.Polyline[]} */
   let wayPolylines = [];
 
+  /** Glowing overlays (on map, above base graph). */
+  /** @type {L.LayerGroup|null} */
+  let forwardGlowLayer = null;
+  /** @type {L.LayerGroup|null} */
+  let returnGlowLayer = null;
+
+  /** @type {number[][]|null} */
+  let lastReturnLatLngs = null;
+
   /** @type {Map<string, GraphNode>} */
   let nodeStore = new Map();
   /** @type {Map<string, GraphEdge[]>} */
@@ -105,7 +114,11 @@ out geom;`;
   const $skill = document.getElementById("skill-select");
   const $goal = document.getElementById("goal-select");
   const $find = document.getElementById("find-route");
+  const $reset = document.getElementById("reset-search");
   const $routeList = document.getElementById("route-steps");
+  const $returnList = document.getElementById("return-trip-steps");
+  const $returnSection = document.getElementById("return-trip-section");
+  const $returnPanel = document.getElementById("return-trip-panel");
   const $loadingText = document.getElementById("loading-text");
   const $spinner = document.getElementById("loading-spinner");
   const $startDisp = document.getElementById("start-node-display");
@@ -124,6 +137,71 @@ out geom;`;
       $spinner.classList.add("hidden");
       $find.disabled = false;
     }
+  }
+
+  function bringNodeMarkersToFront() {
+    nodeMarkers.forEach((m) => {
+      if (m && m.bringToFront) m.bringToFront();
+    });
+  }
+
+  function removeForwardGlow() {
+    if (forwardGlowLayer && map) {
+      map.removeLayer(forwardGlowLayer);
+      forwardGlowLayer = null;
+    }
+  }
+
+  function removeReturnGlow() {
+    if (returnGlowLayer && map) {
+      map.removeLayer(returnGlowLayer);
+      returnGlowLayer = null;
+    }
+  }
+
+  function removeAllRouteGlows() {
+    removeForwardGlow();
+    removeReturnGlow();
+    lastReturnLatLngs = null;
+  }
+
+  /**
+   * @param {number[][]} latlngs
+   * @param {'forward'|'return'} kind
+   */
+  function showRouteGlow(latlngs, kind) {
+    if (!map || !latlngs || latlngs.length < 2) return;
+
+    if (kind === "forward") {
+      removeForwardGlow();
+      forwardGlowLayer = L.layerGroup();
+      const line = L.polyline(latlngs, {
+        className: "route-glow-forward",
+        color: "#facc15",
+        weight: 8,
+        opacity: 0.6,
+        lineCap: "round",
+        lineJoin: "round",
+      });
+      forwardGlowLayer.addLayer(line);
+      forwardGlowLayer.addTo(map);
+      forwardGlowLayer.bringToFront();
+    } else {
+      removeReturnGlow();
+      returnGlowLayer = L.layerGroup();
+      const line = L.polyline(latlngs, {
+        className: "route-glow-return",
+        color: "#22d3ee",
+        weight: 8,
+        opacity: 0.65,
+        lineCap: "round",
+        lineJoin: "round",
+      });
+      returnGlowLayer.addLayer(line);
+      returnGlowLayer.addTo(map);
+      returnGlowLayer.bringToFront();
+    }
+    bringNodeMarkersToFront();
   }
 
   function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -175,7 +253,6 @@ out geom;`;
     }
   }
 
-  /** Highest OSM piste tier (1=green … 4=black) this skier wants without penalty. */
   function userMaxPisteTier(skillKey) {
     switch (skillKey) {
       case "never":
@@ -195,7 +272,6 @@ out geom;`;
     }
   }
 
-  /** Map tagged difficulty to numeric tier for comparisons. */
   function pisteTier(diffNorm) {
     if (diffNorm === "easy") return 1;
     if (diffNorm === "intermediate") return 2;
@@ -212,9 +288,15 @@ out geom;`;
   }
 
   /**
+   * Return trip: strongly penalize downhill segments so lifts carry most of the cost.
    * @param {GraphEdge} edge
-   * @param {RoutingContext} ctx
    */
+  function edgeWeightReturnLiftPreferred(edge) {
+    let w = edge.lengthMeters;
+    if (!edge.isLift) w *= 100;
+    return w;
+  }
+
   function edgeWeight(edge, ctx) {
     let w = edge.lengthMeters;
 
@@ -244,7 +326,6 @@ out geom;`;
     return w;
   }
 
-  /** Rebuild every piste/lift polyline from `lastParsedWays` onto `graphLayer`. */
   function redrawAllTracksFromData() {
     if (!graphLayer || !map) return;
     for (const pl of wayPolylines) {
@@ -261,29 +342,7 @@ out geom;`;
     wayPolylines.forEach((pl) => {
       if (pl && pl.bringToBack) pl.bringToBack();
     });
-    nodeMarkers.forEach((m) => {
-      if (m && m.bringToFront) m.bringToFront();
-    });
-  }
-
-  /** Remove polylines for ways not in the optimal path (layers only; `wayPolylines` refs kept for redraw). */
-  function removeNonPathFromMap(usedWayIndices) {
-    if (!graphLayer) return;
-    for (let i = 0; i < wayPolylines.length; i++) {
-      if (usedWayIndices.has(i)) continue;
-      const pl = wayPolylines[i];
-      if (pl && graphLayer.hasLayer(pl)) graphLayer.removeLayer(pl);
-    }
-  }
-
-  /** @param {GraphEdge[]|null|undefined} pathEdges */
-  function pathUsedWayIndices(pathEdges) {
-    const s = new Set();
-    if (!pathEdges) return s;
-    for (const e of pathEdges) {
-      if (typeof e.wayIdx === "number") s.add(e.wayIdx);
-    }
-    return s;
+    bringNodeMarkersToFront();
   }
 
   function osmWayName(tags) {
@@ -335,24 +394,82 @@ out geom;`;
     return "Piste";
   }
 
-  /** @param {GraphEdge[]|null|undefined} pathEdges */
-  function fillRouteList(pathEdges) {
+  function forwardStepTitle(nodeId, index, total) {
+    const n = nodeStore.get(nodeId);
+    const base = n && n.label ? n.label : "Waypoint";
+    if (index === 0) return base + " (Start)";
+    if (index === total - 1) return base + " (End)";
+    return base;
+  }
+
+  /** @param {string[]} pathNodeIds */
+  function fillForwardRouteNodeList(pathNodeIds) {
     if (!$routeList) return;
     $routeList.innerHTML = "";
-    let n = 1;
-    function addLine(text) {
+    const total = pathNodeIds.length;
+    pathNodeIds.forEach((nodeId, index) => {
       const li = document.createElement("li");
-      li.textContent = n++ + ". " + text;
+      li.className = "route-node-item";
+      li.textContent = index + 1 + ". " + forwardStepTitle(nodeId, index, total);
+      li.setAttribute("tabindex", "0");
+      li.setAttribute("role", "button");
+      const fly = () => {
+        const n = nodeStore.get(nodeId);
+        if (!n || !map) return;
+        map.flyTo([n.lat, n.lon], Math.max(map.getZoom(), 15), { duration: 0.6 });
+        const mk = nodeMarkers.get(nodeId);
+        if (mk) {
+          mk.openPopup();
+        }
+      };
+      li.addEventListener("click", fly);
+      li.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          fly();
+        }
+      });
       $routeList.appendChild(li);
+    });
+  }
+
+  function setReturnSectionVisible(visible) {
+    if (!$returnSection) return;
+    if (visible) $returnSection.classList.remove("hidden");
+    else $returnSection.classList.add("hidden");
+  }
+
+  /** Narrative list: End → segments → Start */
+  function fillReturnTripList(pathNodeIds, pathEdges) {
+    if (!$returnList) return;
+    $returnList.innerHTML = "";
+    if (!pathNodeIds || pathNodeIds.length < 2) return;
+
+    let step = 1;
+    function add(text) {
+      const li = document.createElement("li");
+      li.textContent = step++ + ". " + text;
+      $returnList.appendChild(li);
     }
-    addLine("Start");
+
+    const nEnd = nodeStore.get(pathNodeIds[0]);
+    add((nEnd && nEnd.label ? nEnd.label : "End") + " (End)");
+
     const groups = mergePathEdgeGroups(pathEdges || []);
     for (const e of groups) {
       const baseName = e.wayName || (e.isLift ? "Unnamed Lift" : "Unnamed Piste");
-      if (e.isLift) addLine(baseName + " (Lift)");
-      else addLine(baseName + " (" + difficultyListLabel(e.difficulty) + ")");
+      if (e.isLift) add(baseName + " (Lift)");
+      else add(baseName + " (" + difficultyListLabel(e.difficulty) + ")");
     }
-    addLine("End");
+
+    const nStart = nodeStore.get(pathNodeIds[pathNodeIds.length - 1]);
+    add((nStart && nStart.label ? nStart.label : "Start") + " (Start)");
+  }
+
+  function clearOutputLists() {
+    if ($routeList) $routeList.innerHTML = "";
+    if ($returnList) $returnList.innerHTML = "";
+    setReturnSectionVisible(false);
   }
 
   function setAgentOutputVisible(visible) {
@@ -565,6 +682,7 @@ out geom;`;
   }
 
   function clearGraphLayer() {
+    removeAllRouteGlows();
     if (graphLayer && map) {
       map.removeLayer(graphLayer);
       graphLayer = null;
@@ -665,11 +783,6 @@ out geom;`;
     graphLayer.addTo(map);
   }
 
-  function clearRoute() {
-    redrawAllTracksFromData();
-    if ($routeList) $routeList.innerHTML = "";
-  }
-
   function mergePathLatLngs(pathEdges, pathNodeIds) {
     if (!pathEdges || !pathEdges.length) {
       return pathNodeIds.map((id) => {
@@ -701,25 +814,63 @@ out geom;`;
     return out;
   }
 
-  /**
-   * Show only path ways; no extra highlight polyline.
-   * @param {string[]|null} pathNodeIds
-   * @param {GraphEdge[]|null} pathEdges
-   */
+  function onReturnTripPanelActivate() {
+    if (!lastReturnLatLngs || lastReturnLatLngs.length < 2 || !map) return;
+    removeForwardGlow();
+    showRouteGlow(lastReturnLatLngs, "return");
+    map.fitBounds(L.latLngBounds(lastReturnLatLngs), { padding: [48, 48], maxZoom: 16 });
+    bringNodeMarkersToFront();
+  }
+
   function drawRoute(pathNodeIds, pathEdges) {
     if (!pathNodeIds || pathNodeIds.length < 2) return;
 
     redrawAllTracksFromData();
-    const used = pathUsedWayIndices(pathEdges);
-    removeNonPathFromMap(used);
+    removeReturnGlow();
 
-    const latlngs = mergePathLatLngs(pathEdges, pathNodeIds);
-    if (latlngs.length >= 2 && map) {
-      map.fitBounds(L.latLngBounds(latlngs), { padding: [48, 48], maxZoom: 16 });
+    const forwardLatLngs = mergePathLatLngs(pathEdges, pathNodeIds);
+    showRouteGlow(forwardLatLngs, "forward");
+
+    if (forwardLatLngs.length >= 2 && map) {
+      map.fitBounds(L.latLngBounds(forwardLatLngs), { padding: [48,48], maxZoom: 16 });
     }
 
-    fillRouteList(pathEdges);
+    fillForwardRouteNodeList(pathNodeIds);
     setAgentOutputVisible(true);
+
+    const ret = dijkstra(adjacency, endNodeId, startNodeId, edgeWeightReturnLiftPreferred);
+    if (ret.path && ret.edges && ret.path.length >= 2) {
+      lastReturnLatLngs = mergePathLatLngs(ret.edges, ret.path);
+      fillReturnTripList(ret.path, ret.edges);
+      setReturnSectionVisible(true);
+    } else {
+      lastReturnLatLngs = null;
+      if ($returnList) $returnList.innerHTML = "";
+      setReturnSectionVisible(false);
+    }
+
+    bringNodeMarkersToFront();
+  }
+
+  function clearRoute() {
+    removeAllRouteGlows();
+    if (graphLayer && map) redrawAllTracksFromData();
+    clearOutputLists();
+  }
+
+  function resetSearch() {
+    startNodeId = null;
+    endNodeId = null;
+    clickStage = 0;
+    removeAllRouteGlows();
+    if (graphLayer && map) redrawAllTracksFromData();
+    refreshNodeMarkerStyles();
+    updateSelectionInputs();
+    clearOutputLists();
+    setAgentOutputVisible(false);
+    if ($appHint)
+      $appHint.textContent =
+        "Selection cleared. Click two nodes for Start and End, then Find Route.";
   }
 
   async function loadResort(resort) {
@@ -822,6 +973,7 @@ out geom;`;
   }
 
   function onFindRoute() {
+    removeAllRouteGlows();
     redrawAllTracksFromData();
 
     const ctx = getRoutingContext();
@@ -831,7 +983,7 @@ out geom;`;
         $appHint.innerHTML =
           '<span class="text-amber-400">Click two graph nodes on the map for Start and End first.</span>';
       setAgentOutputVisible(false);
-      if ($routeList) $routeList.innerHTML = "";
+      clearOutputLists();
       return;
     }
     if (startNodeId === endNodeId) {
@@ -839,7 +991,7 @@ out geom;`;
         $appHint.innerHTML =
           '<span class="text-amber-400">Start and End must be different nodes.</span>';
       setAgentOutputVisible(false);
-      if ($routeList) $routeList.innerHTML = "";
+      clearOutputLists();
       return;
     }
 
@@ -850,7 +1002,7 @@ out geom;`;
         $appHint.innerHTML =
           '<span class="text-amber-400">No connected route between the chosen nodes in this graph.</span>';
       setAgentOutputVisible(false);
-      if ($routeList) $routeList.innerHTML = "";
+      clearOutputLists();
       clearRoute();
       return;
     }
@@ -860,6 +1012,16 @@ out geom;`;
   populateSelects();
   initMap();
 
+  if ($returnPanel) {
+    $returnPanel.addEventListener("click", onReturnTripPanelActivate);
+    $returnPanel.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onReturnTripPanelActivate();
+      }
+    });
+  }
+
   $resort.addEventListener("change", () => {
     currentResortId = $resort.value;
     const r = RESORTS.find((x) => x.id === currentResortId);
@@ -867,6 +1029,7 @@ out geom;`;
   });
 
   $find.addEventListener("click", onFindRoute);
+  if ($reset) $reset.addEventListener("click", resetSearch);
 
   loadResort(RESORTS[0]);
 })();
