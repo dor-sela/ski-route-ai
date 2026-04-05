@@ -1,50 +1,31 @@
-/* Route list */
-.route-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgb(51 65 85);
-  border-radius: 0.5rem;
-  max-height: 28vh;
-  overflow-y: auto;
+/* Layout: map 70% / sidebar 30% */
+#map {
+  width: 70%;
 }
 
-.route-list li {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  line-height: 1.35;
-  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+#sidebar {
+  width: 30%;
+}
+
+/* Clickable route list items */
+#forward-list li,
+#return-list li {
   cursor: pointer;
-  transition: background 0.15s ease;
+  padding: 0.25rem 0;
+  border-radius: 4px;
 }
 
-.route-list li:last-child {
-  border-bottom: none;
+#forward-list li:hover,
+#return-list li:hover {
+  background-color: rgba(51, 65, 85, 0.6);
 }
 
-.route-list li:hover,
-.route-list li:focus {
-  background: rgba(56, 189, 248, 0.12);
-  outline: none;
+.route-section-header {
+  background: transparent;
+  border: none;
 }
 
-.forward-route-header:focus-visible,
-.return-trip-header:focus-visible {
-  outline: 2px solid rgb(56, 189, 248);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
-.route-output.hidden {
-  display: none;
-}
-
-/* Glowing route overlays (Leaflet paths) */
-.leaflet-interactive.route-glow-forward {
-  filter: drop-shadow(0 0 5px rgba(250, 204, 21, 0.9));
-}
-
-.leaflet-interactive.route-glow-return {
-  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.95));
+/* Leaflet needs explicit height from parent flex */
+#app {
+  min-height: 0;
 }

@@ -5,115 +5,72 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ski Route AI Agent</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <link rel="stylesheet" href="style.css" />
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen overflow-hidden">
-  <div class="flex h-screen w-full">
-    <main class="w-[70%] h-full shrink-0 relative">
-      <div id="map" class="w-full h-full"></div>
-    </main>
-    <aside
-      class="w-[30%] h-full shrink-0 flex flex-col border-l border-slate-700 bg-slate-950 p-4 gap-3 overflow-y-auto"
-    >
-      <h1 class="text-lg font-semibold text-white border-b border-slate-700 pb-2">
-        Ski Route AI Agent
-      </h1>
+<body class="h-screen w-screen overflow-hidden m-0 p-0 bg-slate-900 text-slate-100">
+  <div id="app" class="flex h-full w-full">
+    <div id="map" class="h-full shrink-0 bg-slate-800"></div>
+    <aside id="sidebar" class="h-full flex flex-col border-l border-slate-600 bg-slate-900/95 p-4 overflow-y-auto">
+      <h1 class="text-lg font-semibold text-white mb-2">Ski Route AI</h1>
+      <p class="text-xs text-slate-400 mb-4">Pick resort, skill, and goal. Choose start and end node on the map, then find a route.</p>
 
-      <label class="text-xs uppercase tracking-wide text-slate-400" for="resort-select">Resort</label>
-      <select
-        id="resort-select"
-        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
-      >
-        <option value="val-thorens">Val Thorens</option>
+      <div id="loading-banner" class="hidden mb-3 px-3 py-2 rounded bg-amber-900/50 text-amber-200 text-sm font-medium">
+        Loading…
+      </div>
+
+      <label class="block text-xs font-medium text-slate-300 mb-1">Resort</label>
+      <select id="resort" class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-2 mb-3 text-sm">
+        <option value="val-thorens" selected>Val Thorens</option>
         <option value="whistler">Whistler</option>
         <option value="zermatt">Zermatt</option>
       </select>
 
-      <label class="text-xs uppercase tracking-wide text-slate-400" for="skill-select">Skill Level</label>
-      <select
-        id="skill-select"
-        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
-      >
+      <label class="block text-xs font-medium text-slate-300 mb-1">Skill Level</label>
+      <select id="skill" class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-2 mb-3 text-sm">
         <option value="never">Never Skied Before</option>
         <option value="first-week">First Week Beginner</option>
         <option value="low-intermediate">Low Intermediate (Blue)</option>
         <option value="high-intermediate">High Intermediate (Red)</option>
         <option value="advanced">Advanced (Black)</option>
         <option value="expert">Expert/Freeride</option>
-        <option value="extreme">Extreme/Steep</option>
       </select>
 
-      <label class="text-xs uppercase tracking-wide text-slate-400" for="goal-select">Route Goal</label>
-      <select
-        id="goal-select"
-        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
-      >
+      <label class="block text-xs font-medium text-slate-300 mb-1">Route Goal</label>
+      <select id="goal" class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-2 mb-4 text-sm">
         <option value="comfort">Comfort</option>
         <option value="progression">Progression</option>
         <option value="relaxed">Relaxed</option>
         <option value="training">Training</option>
-        <option value="scenic">Scenic</option>
         <option value="direct">Direct</option>
       </select>
 
-      <div class="grid grid-cols-1 gap-2 pt-1">
-        <button
-          type="button"
-          id="find-route"
-          class="py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 font-medium text-white transition-colors"
-        >
+      <div class="flex gap-2 mb-4">
+        <button type="button" id="find-route" class="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-medium py-2 px-3 rounded text-sm">
           Find Route
         </button>
-        <button
-          type="button"
-          id="reset-search"
-          class="py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 border border-slate-600 font-medium transition-colors"
-        >
+        <button type="button" id="reset-search" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-medium py-2 px-3 rounded text-sm">
           Reset Search
         </button>
       </div>
 
-      <p id="status-hint" class="text-xs text-slate-500">
-        Load a resort, then click two nodes (way endpoints) for start and end.
-      </p>
+      <div class="border-t border-slate-700 pt-3 mb-3">
+        <button type="button" id="forward-header" class="route-section-header w-full text-left font-semibold text-yellow-300 hover:text-yellow-200 py-2 flex items-center gap-2">
+          <span class="text-lg">▸</span> Forward Route
+        </button>
+        <ul id="forward-list" class="list-none pl-6 text-sm text-slate-300 space-y-1 min-h-[1.5rem]"></ul>
+      </div>
 
-      <div id="route-output" class="route-output hidden mt-2 space-y-3">
-        <div>
-          <h2
-            id="forward-route-header"
-            class="forward-route-header text-xs uppercase tracking-wide text-amber-300/90 cursor-pointer hover:text-amber-200 select-none"
-            role="button"
-            tabindex="0"
-          >
-            Forward Route
-          </h2>
-          <ul id="forward-route-list" class="route-list mt-1"></ul>
-        </div>
-        <div>
-          <h2
-            id="return-trip-header"
-            class="return-trip-header text-xs uppercase tracking-wide text-cyan-400/90 cursor-pointer hover:text-cyan-300 select-none"
-            role="button"
-            tabindex="0"
-          >
-            Return Trip (Lifts)
-          </h2>
-          <ul id="return-trip-list" class="route-list mt-1"></ul>
-        </div>
+      <div class="border-t border-slate-700 pt-3">
+        <button type="button" id="return-header" class="route-section-header w-full text-left font-semibold text-cyan-300 hover:text-cyan-200 py-2 flex items-center gap-2">
+          <span class="text-lg">▸</span> Return Trip (Lifts)
+        </button>
+        <ul id="return-list" class="list-none pl-6 text-sm text-slate-300 space-y-1 min-h-[1.5rem]"></ul>
       </div>
     </aside>
   </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="script.js"></script>
 </body>
 </html>
