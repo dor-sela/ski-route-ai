@@ -1,135 +1,50 @@
-/* Leaflet container */
-#map {
-  background: #0f172a;
-}
-
-/* Subtle loading spinner */
-.loading-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(56, 189, 248, 0.25);
-  border-top-color: #38bdf8;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
-.loading-spinner.hidden {
-  display: none;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.agent-output-section.hidden {
-  display: none;
-}
-
-.agent-output-section:not(.hidden) {
-  display: block;
-}
-
-.return-trip-section.hidden {
-  display: none;
-}
-
-.route-steps-list {
-  margin: 0;
-  padding-left: 0;
+/* Route list */
+.route-list {
   list-style: none;
+  margin: 0;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgb(51 65 85);
+  border-radius: 0.5rem;
+  max-height: 28vh;
+  overflow-y: auto;
 }
 
-.route-steps-list li {
-  margin: 0.25rem 0;
-}
-
-li.route-node-item {
+.route-list li {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
   cursor: pointer;
-  padding: 0.2rem 0.35rem;
-  margin-left: -0.35rem;
-  margin-right: -0.35rem;
-  border-radius: 4px;
-  transition: background-color 0.15s ease;
+  transition: background 0.15s ease;
 }
 
-li.route-node-item:hover {
+.route-list li:last-child {
+  border-bottom: none;
+}
+
+.route-list li:hover,
+.route-list li:focus {
   background: rgba(56, 189, 248, 0.12);
+  outline: none;
 }
 
-li.route-node-item:focus {
-  outline: 1px solid rgba(56, 189, 248, 0.5);
-  outline-offset: 1px;
+.forward-route-header:focus-visible,
+.return-trip-header:focus-visible {
+  outline: 2px solid rgb(56, 189, 248);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
-li.route-segment-item {
-  cursor: pointer;
-  padding: 0.2rem 0.35rem;
-  margin-left: -0.35rem;
-  margin-right: -0.35rem;
-  border-radius: 4px;
-  transition: background-color 0.15s ease;
-  border-left: 2px solid rgba(34, 211, 238, 0.35);
-  padding-left: 0.5rem;
+.route-output.hidden {
+  display: none;
 }
 
-li.route-segment-item:hover {
-  background: rgba(56, 189, 248, 0.1);
-}
-
-li.route-segment-item:focus {
-  outline: 1px solid rgba(56, 189, 248, 0.5);
-  outline-offset: 1px;
-}
-
-/* Forward route glow (Leaflet adds path to overlay pane) */
+/* Glowing route overlays (Leaflet paths) */
 .leaflet-interactive.route-glow-forward {
-  filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.85));
+  filter: drop-shadow(0 0 5px rgba(250, 204, 21, 0.9));
 }
 
 .leaflet-interactive.route-glow-return {
-  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.85));
-}
-
-/* Persistent map legend (Leaflet control) */
-.map-legend {
-  background: rgba(15, 23, 42, 0.92);
-  color: #e2e8f0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  font-size: 11px;
-  line-height: 1.45;
-  min-width: 150px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-}
-
-.map-legend h3 {
-  margin: 0 0 8px 0;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #94a3b8;
-}
-
-.map-legend .row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 4px 0;
-}
-
-.map-legend .swatch {
-  width: 22px;
-  height: 4px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
-.map-legend .swatch.lift {
-  height: 0;
-  border-bottom: 3px dashed #94a3b8;
-  background: transparent;
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.95));
 }

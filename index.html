@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ski Route AI — Vanilla</title>
+  <title>Ski Route AI Agent</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link
     rel="stylesheet"
@@ -20,29 +20,27 @@
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen overflow-hidden">
   <div class="flex h-screen w-full">
-    <main class="w-[70%] h-full relative shrink-0">
-      <div id="map" class="w-full h-full z-0"></div>
-      <div
-        id="map-hint"
-        class="absolute top-3 left-1/2 -translate-x-1/2 z-[500] bg-slate-900/85 backdrop-blur px-4 py-2 rounded-lg border border-slate-600 text-sm pointer-events-none"
-      >
-        Click a graph node (circle): first = Start, second = End; then repeats to move Start
-      </div>
+    <main class="w-[70%] h-full shrink-0 relative">
+      <div id="map" class="w-full h-full"></div>
     </main>
     <aside
-      class="w-[30%] h-full flex flex-col border-l border-slate-700 bg-slate-950 p-4 gap-3 overflow-y-auto shrink-0"
+      class="w-[30%] h-full shrink-0 flex flex-col border-l border-slate-700 bg-slate-950 p-4 gap-3 overflow-y-auto"
     >
       <h1 class="text-lg font-semibold text-white border-b border-slate-700 pb-2">
-        AI Ski Agent
+        Ski Route AI Agent
       </h1>
 
-      <label class="text-xs uppercase tracking-wide text-slate-400">Resort</label>
+      <label class="text-xs uppercase tracking-wide text-slate-400" for="resort-select">Resort</label>
       <select
         id="resort-select"
-        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none"
-      ></select>
+        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+      >
+        <option value="val-thorens">Val Thorens</option>
+        <option value="whistler">Whistler</option>
+        <option value="zermatt">Zermatt</option>
+      </select>
 
-      <label class="text-xs uppercase tracking-wide text-slate-400">Skill level</label>
+      <label class="text-xs uppercase tracking-wide text-slate-400" for="skill-select">Skill Level</label>
       <select
         id="skill-select"
         class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
@@ -56,106 +54,62 @@
         <option value="extreme">Extreme/Steep</option>
       </select>
 
-      <label class="text-xs uppercase tracking-wide text-slate-400">Route goal</label>
+      <label class="text-xs uppercase tracking-wide text-slate-400" for="goal-select">Route Goal</label>
       <select
         id="goal-select"
         class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
       >
-        <option value="comfort">Comfort (Stay at my level)</option>
-        <option value="progression">Progression (My level + some challenges)</option>
-        <option value="relaxed">Relaxed (Maximize lifts/easy runs)</option>
-        <option value="training">Training (Maximize vertical meters)</option>
-        <option value="scenic">Scenic (Visit peaks/restaurants)</option>
-        <option value="direct">Direct (Shortest time)</option>
+        <option value="comfort">Comfort</option>
+        <option value="progression">Progression</option>
+        <option value="relaxed">Relaxed</option>
+        <option value="training">Training</option>
+        <option value="scenic">Scenic</option>
+        <option value="direct">Direct</option>
       </select>
 
-      <div class="rounded-lg border border-slate-700 bg-slate-900/60 p-3 space-y-2">
-        <h2 class="text-xs uppercase tracking-wide text-slate-400">Selected nodes</h2>
-        <div>
-          <label for="start-node-display" class="text-[11px] text-slate-500">Start</label>
-          <input
-            id="start-node-display"
-            type="text"
-            readonly
-            value="—"
-            class="w-full mt-0.5 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs text-slate-200 font-mono"
-          />
-        </div>
-        <div>
-          <label for="end-node-display" class="text-[11px] text-slate-500">End</label>
-          <input
-            id="end-node-display"
-            type="text"
-            readonly
-            value="—"
-            class="w-full mt-0.5 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs text-slate-200 font-mono"
-          />
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 gap-2">
+      <div class="grid grid-cols-1 gap-2 pt-1">
         <button
-          id="find-route"
           type="button"
-          class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 active:bg-sky-700 font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          id="find-route"
+          class="py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 font-medium text-white transition-colors"
         >
           Find Route
         </button>
         <button
-          id="reset-search"
           type="button"
-          class="w-full py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 active:bg-slate-800 border border-slate-600 font-medium text-slate-100 transition-colors"
+          id="reset-search"
+          class="py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 border border-slate-600 font-medium transition-colors"
         >
           Reset Search
         </button>
       </div>
 
-      <div class="flex items-center gap-2 min-h-[28px]">
-        <div id="loading-spinner" class="loading-spinner hidden" aria-hidden="true"></div>
-        <p id="loading-text" class="text-sm text-slate-400 hidden">Loading resort data…</p>
-      </div>
-
-      <p id="app-hint" class="text-xs text-slate-500 leading-relaxed">
-        Select resort, skill, and goal; click two nodes for Start and End; then
-        <strong class="text-sky-400">Find Route</strong>. Routing favors runs that match your settings. Yellow = outbound path; use
-        <strong class="text-cyan-400">Show Return Trip (Lifts)</strong> for the lift-heavy way back.
+      <p id="status-hint" class="text-xs text-slate-500">
+        Load a resort, then click two nodes (way endpoints) for start and end.
       </p>
 
-      <div id="agent-output-section" class="agent-output-section hidden">
-        <h2
-          id="route-heading"
-          class="route-heading text-xs uppercase tracking-wide text-slate-400 mb-1 cursor-pointer hover:text-sky-400 transition-colors"
-          role="button"
-          tabindex="0"
-          title="Show outbound route highlight on map"
-        >
-          Route — click here to show yellow path
-        </h2>
-        <p class="text-[11px] text-slate-500 mb-1">
-          Click any step to fly to that point at zoom 17. Return trip stays off the map until you use the button below.
-        </p>
-        <ul
-          id="route-steps"
-          class="route-steps-list bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[80px]"
-        ></ul>
-
-        <div id="return-trip-section" class="return-trip-section hidden mt-4 space-y-2">
-          <div class="bg-slate-900/80 border border-slate-600 rounded-lg p-3 text-sm text-slate-200">
-            <h2 class="text-xs uppercase tracking-wide text-cyan-400/90 mb-2">
-              Return trip (lifts back up)
-            </h2>
-            <button
-              type="button"
-              id="return-trip-toggle"
-              class="w-full py-2.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 active:bg-cyan-800 font-medium text-white transition-colors border border-cyan-500/50"
-            >
-              Show Return Trip (Lifts)
-            </button>
-            <p class="text-[10px] text-slate-500 mt-2">
-              Second route: End → Start with lifts ×0.01 and downhill pistes ×1000. Shows cyan on the map and hides the yellow forward line. Click <strong>Route</strong> above to switch back.
-            </p>
-            <ul id="return-trip-steps" class="route-steps-list mt-2 border-t border-slate-600 pt-2"></ul>
-          </div>
+      <div id="route-output" class="route-output hidden mt-2 space-y-3">
+        <div>
+          <h2
+            id="forward-route-header"
+            class="forward-route-header text-xs uppercase tracking-wide text-amber-300/90 cursor-pointer hover:text-amber-200 select-none"
+            role="button"
+            tabindex="0"
+          >
+            Forward Route
+          </h2>
+          <ul id="forward-route-list" class="route-list mt-1"></ul>
+        </div>
+        <div>
+          <h2
+            id="return-trip-header"
+            class="return-trip-header text-xs uppercase tracking-wide text-cyan-400/90 cursor-pointer hover:text-cyan-300 select-none"
+            role="button"
+            tabindex="0"
+          >
+            Return Trip (Lifts)
+          </h2>
+          <ul id="return-trip-list" class="route-list mt-1"></ul>
         </div>
       </div>
     </aside>
