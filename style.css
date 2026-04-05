@@ -31,18 +31,14 @@
   display: block;
 }
 
-.agent-output strong {
-  font-weight: 600;
+.route-steps-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
 }
 
-.agent-output ol {
-  margin: 0.5rem 0 0 1.1rem;
-  padding: 0;
-  list-style: decimal;
-}
-
-.agent-output li {
-  margin: 0.35rem 0;
+.route-steps-list li {
+  margin: 0.25rem 0;
 }
 
 /* Persistent map legend (Leaflet control) */

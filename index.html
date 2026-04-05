@@ -42,11 +42,32 @@
         class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none"
       ></select>
 
-      <label class="text-xs uppercase tracking-wide text-slate-400">Time of day</label>
+      <label class="text-xs uppercase tracking-wide text-slate-400">Skill level</label>
       <select
-        id="time-select"
+        id="skill-select"
         class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
-      ></select>
+      >
+        <option value="never">Never Skied Before</option>
+        <option value="first-week">First Week Beginner</option>
+        <option value="low-intermediate">Low Intermediate (Blue)</option>
+        <option value="high-intermediate">High Intermediate (Red)</option>
+        <option value="advanced">Advanced (Black)</option>
+        <option value="expert">Expert/Freeride</option>
+        <option value="extreme">Extreme/Steep</option>
+      </select>
+
+      <label class="text-xs uppercase tracking-wide text-slate-400">Route goal</label>
+      <select
+        id="goal-select"
+        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+      >
+        <option value="comfort">Comfort (Stay at my level)</option>
+        <option value="progression">Progression (My level + some challenges)</option>
+        <option value="relaxed">Relaxed (Maximize lifts/easy runs)</option>
+        <option value="training">Training (Maximize vertical meters)</option>
+        <option value="scenic">Scenic (Visit peaks/restaurants)</option>
+        <option value="direct">Direct (Shortest time)</option>
+      </select>
 
       <div class="rounded-lg border border-slate-700 bg-slate-900/60 p-3 space-y-2">
         <h2 class="text-xs uppercase tracking-wide text-slate-400">Selected nodes</h2>
@@ -72,16 +93,6 @@
         </div>
       </div>
 
-      <label class="text-xs uppercase tracking-wide text-slate-400">
-        Describe your level &amp; goal
-      </label>
-      <textarea
-        id="chat-input"
-        rows="4"
-        placeholder='e.g. "I am a beginner looking for a warmup on easy terrain" or "Expert, training on steep reds"'
-        class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm resize-y min-h-[100px] focus:ring-2 focus:ring-sky-500 outline-none placeholder:text-slate-500"
-      ></textarea>
-
       <button
         id="find-route"
         type="button"
@@ -96,16 +107,16 @@
       </div>
 
       <p id="app-hint" class="text-xs text-slate-500 leading-relaxed">
-        Select a resort, click two small nodes on the map for Start and End, optionally describe your goals, then
-        <strong class="text-sky-400">Find Route</strong>. The detailed agent narrative appears after a route is found.
+        Select resort, skill, and goal; click two nodes for Start and End; then
+        <strong class="text-sky-400">Find Route</strong>. Only route pistes/lifts stay on the map; the list below updates when a path is found.
       </p>
 
       <div id="agent-output-section" class="agent-output-section hidden">
-        <h2 class="text-xs uppercase tracking-wide text-slate-400 mb-2">Agent output</h2>
-        <div
-          id="agent-output"
-          class="agent-output bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[120px]"
-        ></div>
+        <h2 class="text-xs uppercase tracking-wide text-slate-400 mb-2">Route</h2>
+        <ul
+          id="route-steps"
+          class="route-steps-list bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[80px]"
+        ></ul>
       </div>
     </aside>
   </div>

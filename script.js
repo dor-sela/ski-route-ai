@@ -5,6 +5,8 @@
   /** @typedef {{ lat: number, lon: number }} LatLon */
   /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, difficulty: string|null, tags: Record<string,string>, polyline: LatLon[], wayName: string|null, wayIdx: number }} GraphEdge */
 
+  /** @typedef {{ goal: string, userMaxPiste: number }} RoutingContext */
+
   const RESORTS = [
     {
       id: "val-thorens",
@@ -45,17 +47,12 @@
 
   const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
-  /** Round for stable intersection keys (~1.1 m). */
   function coordKey(lat, lon) {
     const rLat = Math.round(lat * 1e5) / 1e5;
     const rLon = Math.round(lon * 1e5) / 1e5;
     return rLat + "," + rLon;
   }
 
-  /**
-   * @param {number[]} bbox [south, west, north, east]
-   * @returns {Promise<any>}
-   */
   async function fetchResortData(bbox) {
     const [s, w, n, e] = bbox;
     const q =
@@ -81,8 +78,7 @@ out geom;`;
   let baseLayer = null;
 
   let graphLayer = null;
-  let routeLayer = null;
-  /** Piste/lift polylines aligned with `lastParsedWays` indices (not including node markers). */
+
   /** @type {L.Polyline[]} */
   let wayPolylines = [];
 
@@ -91,7 +87,6 @@ out geom;`;
   /** @type {Map<string, GraphEdge[]>} */
   let adjacency = new Map();
 
-  /** Raw ways for styling (from last build). */
   /** @type {{ coords: LatLon[], tags: Record<string,string>, isLift: boolean, diffNorm: string|null, wayName: string|null }[]} */
   let lastParsedWays = [];
 
@@ -104,14 +99,13 @@ out geom;`;
   /** @type {string|null} */
   let endNodeId = null;
 
-  /** @type {string} */
   let currentResortId = RESORTS[0].id;
 
   const $resort = document.getElementById("resort-select");
-  const $time = document.getElementById("time-select");
-  const $chat = document.getElementById("chat-input");
+  const $skill = document.getElementById("skill-select");
+  const $goal = document.getElementById("goal-select");
   const $find = document.getElementById("find-route");
-  const $out = document.getElementById("agent-output");
+  const $routeList = document.getElementById("route-steps");
   const $loadingText = document.getElementById("loading-text");
   const $spinner = document.getElementById("loading-spinner");
   const $startDisp = document.getElementById("start-node-display");
@@ -181,47 +175,104 @@ out geom;`;
     }
   }
 
-  /** Restore one track polyline to default ski styling (full opacity). */
-  function applyDefaultStyleToTrackPolyline(index) {
-    const pl = wayPolylines[index];
-    const way = lastParsedWays[index];
-    if (!pl || !way) return;
-    const st = pisteStyle(way.diffNorm, way.isLift);
-    pl.setStyle({
-      color: st.color,
-      weight: st.weight,
-      opacity: st.opacity,
-      dashArray: st.dashArray,
-      lineCap: st.lineCap || "round",
-    });
+  /** Highest OSM piste tier (1=green … 4=black) this skier wants without penalty. */
+  function userMaxPisteTier(skillKey) {
+    switch (skillKey) {
+      case "never":
+      case "first-week":
+        return 1;
+      case "low-intermediate":
+        return 2;
+      case "high-intermediate":
+        return 3;
+      case "advanced":
+        return 4;
+      case "expert":
+      case "extreme":
+        return 4;
+      default:
+        return 2;
+    }
   }
 
-  /** Reset every drawn piste/lift to original colors, weights, and full opacity. */
-  function resetAllTrackStyles() {
-    for (let i = 0; i < wayPolylines.length; i++) applyDefaultStyleToTrackPolyline(i);
+  /** Map tagged difficulty to numeric tier for comparisons. */
+  function pisteTier(diffNorm) {
+    if (diffNorm === "easy") return 1;
+    if (diffNorm === "intermediate") return 2;
+    if (diffNorm === "advanced") return 3;
+    if (diffNorm === "expert") return 4;
+    return 2;
+  }
+
+  function getRoutingContext() {
+    return {
+      goal: ($goal && $goal.value) || "comfort",
+      userMaxPiste: userMaxPisteTier(($skill && $skill.value) || "low-intermediate"),
+    };
   }
 
   /**
-   * Fade tracks whose way index is not used by the optimal path.
-   * @param {Set<number>} usedWayIndices
+   * @param {GraphEdge} edge
+   * @param {RoutingContext} ctx
    */
-  function dimTracksNotOnPath(usedWayIndices) {
+  function edgeWeight(edge, ctx) {
+    let w = edge.lengthMeters;
+
+    if (ctx.goal === "direct") return w;
+
+    if (edge.isLift) {
+      if (ctx.goal === "relaxed") w *= 0.85;
+      if (ctx.goal === "training") w *= 1.2;
+      if (ctx.goal === "scenic") w *= 0.9;
+      return w;
+    }
+
+    if (ctx.goal === "relaxed") w *= 5;
+    if (ctx.goal === "training") w *= 0.75;
+    if (ctx.goal === "scenic") w *= 1.15;
+
+    const userMax = ctx.userMaxPiste;
+    const P = pisteTier(edge.difficulty);
+
+    if (ctx.goal === "progression") {
+      if (P > userMax + 1) w *= 100;
+      else if (P === userMax + 1) w *= 2.5;
+    } else {
+      if (P > userMax) w *= 100;
+    }
+
+    return w;
+  }
+
+  /** Rebuild every piste/lift polyline from `lastParsedWays` onto `graphLayer`. */
+  function redrawAllTracksFromData() {
+    if (!graphLayer || !map) return;
+    for (const pl of wayPolylines) {
+      if (pl && graphLayer.hasLayer(pl)) graphLayer.removeLayer(pl);
+    }
+    wayPolylines = [];
+    lastParsedWays.forEach((way) => {
+      const latlngs = way.coords.map((c) => [c.lat, c.lon]);
+      const st = pisteStyle(way.diffNorm, way.isLift);
+      const track = L.polyline(latlngs, st);
+      wayPolylines.push(track);
+      graphLayer.addLayer(track);
+    });
+    wayPolylines.forEach((pl) => {
+      if (pl && pl.bringToBack) pl.bringToBack();
+    });
+    nodeMarkers.forEach((m) => {
+      if (m && m.bringToFront) m.bringToFront();
+    });
+  }
+
+  /** Remove polylines for ways not in the optimal path (layers only; `wayPolylines` refs kept for redraw). */
+  function removeNonPathFromMap(usedWayIndices) {
+    if (!graphLayer) return;
     for (let i = 0; i < wayPolylines.length; i++) {
-      if (usedWayIndices.has(i)) {
-        applyDefaultStyleToTrackPolyline(i);
-        continue;
-      }
+      if (usedWayIndices.has(i)) continue;
       const pl = wayPolylines[i];
-      const way = lastParsedWays[i];
-      if (!pl || !way) continue;
-      const base = pisteStyle(way.diffNorm, way.isLift);
-      pl.setStyle({
-        color: base.color,
-        weight: 1,
-        opacity: 0.15,
-        dashArray: base.dashArray,
-        lineCap: base.lineCap || "round",
-      });
+      if (pl && graphLayer.hasLayer(pl)) graphLayer.removeLayer(pl);
     }
   }
 
@@ -235,13 +286,11 @@ out geom;`;
     return s;
   }
 
-  /** @param {Record<string,string>} tags */
   function osmWayName(tags) {
     const n = (tags.name || tags["name:en"] || "").trim();
     return n || null;
   }
 
-  /** After graph build, assign human-readable labels to vertices from incident named ways. */
   function assignNodeLabels() {
     nodeStore.forEach((node) => {
       const names = [];
@@ -269,8 +318,7 @@ out geom;`;
     let cur = pathEdges[0];
     for (let i = 1; i < pathEdges.length; i++) {
       const e = pathEdges[i];
-      const merge =
-        !!(cur.wayName && e.wayName === cur.wayName && e.isLift === cur.isLift);
+      const merge = !!(cur.wayName && e.wayName === cur.wayName && e.isLift === cur.isLift);
       if (merge) continue;
       groups.push(cur);
       cur = e;
@@ -279,116 +327,38 @@ out geom;`;
     return groups;
   }
 
-  function difficultyRunPhrase(d) {
-    if (!d) return "ski run (grade not tagged)";
-    if (d === "easy") return "green run";
-    if (d === "intermediate") return "blue run";
-    if (d === "advanced") return "red run";
-    if (d === "expert") return "black run";
-    return "ski run";
+  function difficultyListLabel(diffNorm) {
+    if (diffNorm === "easy") return "Green";
+    if (diffNorm === "intermediate") return "Blue";
+    if (diffNorm === "advanced") return "Red";
+    if (diffNorm === "expert") return "Black";
+    return "Piste";
   }
 
-  function buildNarrativeHTML(pathNodeIds, pathEdges, nlp, timeOfDay) {
-    const startN = nodeStore.get(pathNodeIds[0]);
-    const endN = nodeStore.get(pathNodeIds[pathNodeIds.length - 1]);
-    const startName = (startN && startN.label) || pathNodeIds[0];
-    const endName = (endN && endN.label) || pathNodeIds[pathNodeIds.length - 1];
-
-    let html = "";
-    html += `<p>Based on your request for a <strong>${escapeHtml(nlp.skill)}</strong> route (goal: <strong>${escapeHtml(
-      nlp.goal
-    )}</strong>) at <strong>${escapeHtml(timeOfDay)}</strong>, I minimized cost on the live OSM ski network — distance (Haversine), time-of-day congestion on lifts, and terrain penalties from your agent profile.</p>`;
-
-    if (nlp.skill === "beginner") {
-      html += `<p>Interpreting this as a beginner-focused plan, I heavily penalized black and expert-tagged pistes so the solver prefers greens and blues wherever tags exist, similar to: “I avoided black runs.”</p>`;
+  /** @param {GraphEdge[]|null|undefined} pathEdges */
+  function fillRouteList(pathEdges) {
+    if (!$routeList) return;
+    $routeList.innerHTML = "";
+    let n = 1;
+    function addLine(text) {
+      const li = document.createElement("li");
+      li.textContent = n++ + ". " + text;
+      $routeList.appendChild(li);
     }
-    if (nlp.skill === "expert") {
-      html += `<p>For an advanced skier, expert and advanced pistes receive lower effective cost than for a novice, so the line can follow steeper named runs when they shorten the path.</p>`;
-    }
-    if (nlp.goal === "warmup") {
-      html += `<p>Warmup routing nudges weights toward easier corridors for the first segments of your day.</p>`;
-    }
-
-    html += `<p class="mt-2"><strong>Step-by-step</strong> (piste and lift names from OpenStreetMap <code>name</code> tags where available):</p><ol>`;
-    html += `<li>Start at <strong>${escapeHtml(String(startName))}</strong>.</li>`;
-
+    addLine("Start");
     const groups = mergePathEdgeGroups(pathEdges || []);
     for (const e of groups) {
-      const nm = e.wayName || (e.isLift ? "Unnamed lift" : "Unnamed piste");
-      if (e.isLift) {
-        html += `<li>Take the <strong>${escapeHtml(nm)}</strong> lift.</li>`;
-      } else {
-        const col = difficultyRunPhrase(e.difficulty);
-        html += `<li>Ski down <strong>${escapeHtml(nm)}</strong> — the <strong>${escapeHtml(col)}</strong>. Follow the dashed yellow overlay; the green, blue, red, and black polylines remain visible underneath.</li>`;
-      }
+      const baseName = e.wayName || (e.isLift ? "Unnamed Lift" : "Unnamed Piste");
+      if (e.isLift) addLine(baseName + " (Lift)");
+      else addLine(baseName + " (" + difficultyListLabel(e.difficulty) + ")");
     }
-    html += `<li>Reach your destination at <strong>${escapeHtml(String(endName))}</strong>.</li>`;
-    html += `</ol>`;
-    return html;
+    addLine("End");
   }
 
   function setAgentOutputVisible(visible) {
     if (!$agentSection) return;
     if (visible) $agentSection.classList.remove("hidden");
     else $agentSection.classList.add("hidden");
-  }
-
-  function parseAgentText(text) {
-    const low = (text || "").toLowerCase();
-    let skill = "intermediate";
-    if (/\b(beginner|first[\s-]*timer|novice|never skied|learning)\b/.test(low)) skill = "beginner";
-    else if (/\b(expert|advanced|double[\s-]*black|very advanced|training laps|steep)\b/.test(low))
-      skill = "expert";
-
-    let goal = "general";
-    if (/\bwarm[\s-]*up|easy start|easy morning|first runs?\b/.test(low)) goal = "warmup";
-
-    return { skill, goal };
-  }
-
-  function calculateCongestion(timeOfDay, isLift) {
-    const parts = (timeOfDay || "12:00").split(":");
-    const h = parseInt(parts[0], 10) || 12;
-    if (isLift) {
-      if (h >= 9 && h < 11) return 5;
-      if (h === 13) return 3;
-      if (h === 16) return 4;
-      return 1;
-    }
-    if (h === 13) return 1.85;
-    if (h === 16) return 2.35;
-    if (h >= 9 && h < 11) return 1.15;
-    return 1;
-  }
-
-  function agentPenalty(diffNorm, nlp) {
-    if (!diffNorm) return 1;
-    let m = 1;
-    const easy = diffNorm === "easy";
-    const inter = diffNorm === "intermediate";
-    const adv = diffNorm === "advanced";
-    const exp = diffNorm === "expert";
-
-    if (nlp.skill === "beginner") {
-      if (adv) m *= 4.2;
-      if (exp) m *= 6.5;
-    } else if (nlp.skill === "expert") {
-      if (easy) m *= 1.2;
-      if (adv || exp) m *= 0.8;
-    }
-    if (nlp.goal === "warmup") {
-      if (easy) m *= 0.62;
-      if (inter) m *= 0.88;
-      if (adv) m *= 2.4;
-      if (exp) m *= 3.6;
-    }
-    return m;
-  }
-
-  function edgeWeight(edge, timeOfDay, nlp) {
-    const cong = calculateCongestion(timeOfDay, edge.isLift);
-    const pen = edge.isLift ? 1 : agentPenalty(edge.difficulty, nlp);
-    return edge.lengthMeters * cong * pen;
   }
 
   class MinHeap {
@@ -497,17 +467,12 @@ out geom;`;
     return pl.slice().reverse();
   }
 
-  /**
-   * Build graph from Overpass JSON with `out geom`.
-   * Vertices: way endpoints, lift endpoints, coordinate shared by ≥2 ways.
-   */
   function buildGraphFromOverpassGeom(json) {
     nodeStore = new Map();
     adjacency = new Map();
     lastParsedWays = [];
 
     const elements = json.elements || [];
-    /** @type {{ coords: LatLon[], tags: Record<string,string>, isLift: boolean, diffNorm: string|null, wayName: string|null }[]} */
     const parsed = [];
 
     for (const el of elements) {
@@ -526,7 +491,6 @@ out geom;`;
 
     if (!parsed.length) return;
 
-    /** @type {Map<string, Set<number>>} */
     const keyToWayIdx = new Map();
     parsed.forEach((way, wi) => {
       way.coords.forEach((pt) => {
@@ -541,7 +505,6 @@ out geom;`;
       if (set.size >= 2) intersectionKeys.add(k);
     });
 
-    /** @param {typeof parsed[number]} way @param {number} idx */
     function isGraphVertex(way, idx) {
       const pt = way.coords[idx];
       const k = coordKey(pt.lat, pt.lon);
@@ -703,54 +666,10 @@ out geom;`;
   }
 
   function clearRoute() {
-    if (routeLayer && map) {
-      map.removeLayer(routeLayer);
-      routeLayer = null;
-    }
-    resetAllTrackStyles();
+    redrawAllTracksFromData();
+    if ($routeList) $routeList.innerHTML = "";
   }
 
-  function analyzePathFromNodePath(pathNodeIds) {
-    const c = { lift: 0, easy: 0, intermediate: 0, advanced: 0, expert: 0, unknown: 0 };
-    for (let i = 0; i < pathNodeIds.length - 1; i++) {
-      const u = pathNodeIds[i];
-      const v = pathNodeIds[i + 1];
-      const edges = adjacency.get(u) || [];
-      const e = edges.find((x) => x.to === v);
-      if (!e) continue;
-      if (e.isLift) {
-        c.lift++;
-        continue;
-      }
-      const d = e.difficulty;
-      if (!d) c.unknown++;
-      else if (d === "easy") c.easy++;
-      else if (d === "intermediate") c.intermediate++;
-      else if (d === "advanced") c.advanced++;
-      else if (d === "expert") c.expert++;
-    }
-    return c;
-  }
-
-  /** @param {GraphEdge[]} pathEdges */
-  function analyzePathFromEdges(pathEdges) {
-    const c = { lift: 0, easy: 0, intermediate: 0, advanced: 0, expert: 0, unknown: 0 };
-    for (const e of pathEdges) {
-      if (e.isLift) {
-        c.lift++;
-        continue;
-      }
-      const d = e.difficulty;
-      if (!d) c.unknown++;
-      else if (d === "easy") c.easy++;
-      else if (d === "intermediate") c.intermediate++;
-      else if (d === "advanced") c.advanced++;
-      else if (d === "expert") c.expert++;
-    }
-    return c;
-  }
-
-  /** @param {GraphEdge[]|null} pathEdges */
   function mergePathLatLngs(pathEdges, pathNodeIds) {
     if (!pathEdges || !pathEdges.length) {
       return pathNodeIds.map((id) => {
@@ -782,58 +701,25 @@ out geom;`;
     return out;
   }
 
-  /** @param {string[]|null} pathNodeIds @param {GraphEdge[]|null} pathEdges */
-  function drawRoute(pathNodeIds, pathEdges, nlp, timeOfDay) {
-    clearRoute();
+  /**
+   * Show only path ways; no extra highlight polyline.
+   * @param {string[]|null} pathNodeIds
+   * @param {GraphEdge[]|null} pathEdges
+   */
+  function drawRoute(pathNodeIds, pathEdges) {
     if (!pathNodeIds || pathNodeIds.length < 2) return;
+
+    redrawAllTracksFromData();
+    const used = pathUsedWayIndices(pathEdges);
+    removeNonPathFromMap(used);
+
     const latlngs = mergePathLatLngs(pathEdges, pathNodeIds);
+    if (latlngs.length >= 2 && map) {
+      map.fitBounds(L.latLngBounds(latlngs), { padding: [48, 48], maxZoom: 16 });
+    }
 
-    resetAllTrackStyles();
-    const usedWays = pathUsedWayIndices(pathEdges);
-    dimTracksNotOnPath(usedWays);
-
-    routeLayer = L.layerGroup();
-    const routeLine = L.polyline(latlngs, {
-      color: "yellow",
-      weight: 4,
-      dashArray: "5, 10",
-      opacity: 1,
-      lineCap: "round",
-      lineJoin: "round",
-    });
-    routeLayer.addLayer(routeLine);
-    routeLayer.addTo(map);
-    map.fitBounds(L.latLngBounds(latlngs), { padding: [48, 48], maxZoom: 16 });
-
-    const edgeStats =
-      pathEdges && pathEdges.length
-        ? analyzePathFromEdges(pathEdges)
-        : analyzePathFromNodePath(pathNodeIds);
-    const liftCount = edgeStats.lift;
-    const liftPeak = calculateCongestion(timeOfDay, true) >= 3;
-
-    const bits = [];
-    if (edgeStats.easy) bits.push(edgeStats.easy + " green");
-    if (edgeStats.intermediate) bits.push(edgeStats.intermediate + " blue");
-    if (edgeStats.advanced) bits.push(edgeStats.advanced + " red");
-    if (edgeStats.expert) bits.push(edgeStats.expert + " black");
-    if (edgeStats.unknown) bits.push(edgeStats.unknown + " untagged");
-
-    let statsLine =
-      "Route legs: " +
-      (pathEdges && pathEdges.length ? pathEdges.length : pathNodeIds.length - 1) +
-      "; lifts on path: " +
-      liftCount +
-      ". ";
-    if (bits.length) statsLine += "Piste mix: " + bits.join(", ") + ". ";
-    if (liftPeak) statsLine += "At this hour, lift congestion multipliers are elevated.";
-
+    fillRouteList(pathEdges);
     setAgentOutputVisible(true);
-    $out.innerHTML =
-      buildNarrativeHTML(pathNodeIds, pathEdges, nlp, timeOfDay) +
-      '<p class="mt-3 text-slate-400 text-xs leading-relaxed">' +
-      escapeHtml(statsLine) +
-      "</p>";
   }
 
   async function loadResort(resort) {
@@ -865,7 +751,7 @@ out geom;`;
           nodeStore.size +
           "</strong> graph nodes and <strong>" +
           lastParsedWays.length +
-          "</strong> OSM ways. Click small nodes to set <strong>Start</strong> then <strong>End</strong>; open the agent panel with <strong>Find Route</strong>.";
+          "</strong> OSM ways. Set Start and End, then <strong>Find Route</strong>.";
     } catch (err) {
       console.error(err);
       const msg =
@@ -925,14 +811,6 @@ out geom;`;
     $resort.innerHTML = RESORTS.map(
       (r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`
     ).join("");
-    for (let h = 8; h <= 17; h++) {
-      const label = String(h).padStart(2, "0") + ":00";
-      const o = document.createElement("option");
-      o.value = label;
-      o.textContent = label;
-      $time.appendChild(o);
-    }
-    $time.value = "10:00";
   }
 
   function escapeHtml(s) {
@@ -944,16 +822,16 @@ out geom;`;
   }
 
   function onFindRoute() {
-    resetAllTrackStyles();
+    redrawAllTracksFromData();
 
-    const timeOfDay = $time.value;
-    const nlp = parseAgentText($chat.value);
+    const ctx = getRoutingContext();
 
     if (!startNodeId || !endNodeId) {
       if ($appHint)
         $appHint.innerHTML =
           '<span class="text-amber-400">Click two graph nodes on the map for Start and End first.</span>';
       setAgentOutputVisible(false);
+      if ($routeList) $routeList.innerHTML = "";
       return;
     }
     if (startNodeId === endNodeId) {
@@ -961,20 +839,22 @@ out geom;`;
         $appHint.innerHTML =
           '<span class="text-amber-400">Start and End must be different nodes.</span>';
       setAgentOutputVisible(false);
+      if ($routeList) $routeList.innerHTML = "";
       return;
     }
 
-    const wfn = (e) => edgeWeight(e, timeOfDay, nlp);
+    const wfn = (e) => edgeWeight(e, ctx);
     const result = dijkstra(adjacency, startNodeId, endNodeId, wfn);
     if (!result.path) {
       if ($appHint)
         $appHint.innerHTML =
           '<span class="text-amber-400">No connected route between the chosen nodes in this graph.</span>';
       setAgentOutputVisible(false);
+      if ($routeList) $routeList.innerHTML = "";
       clearRoute();
       return;
     }
-    drawRoute(result.path, result.edges, nlp, timeOfDay);
+    drawRoute(result.path, result.edges);
   }
 
   populateSelects();
