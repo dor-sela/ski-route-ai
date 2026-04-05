@@ -338,6 +338,8 @@
   let activeRouteView = 'forward';
   let lastForwardPath = null;
   let lastReturnPath = null;
+  /** @type {L.CircleMarker | null} */
+  let activeNodeHighlight = null;
 
   const el = {
     loading: document.getElementById('loading-banner'),
@@ -465,6 +467,27 @@
       map.removeLayer(returnPolyline);
       returnPolyline = null;
     }
+  }
+
+  function clearActiveNodeHighlight() {
+    if (activeNodeHighlight) {
+      map.removeLayer(activeNodeHighlight);
+      activeNodeHighlight = null;
+    }
+  }
+
+  function highlightRouteListNode(lat, lng) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    clearActiveNodeHighlight();
+    activeNodeHighlight = L.circleMarker([lat, lng], {
+      radius: 8,
+      color: '#ff7800',
+      weight: 3,
+      fillColor: '#ffff00',
+      fillOpacity: 1,
+    }).addTo(map);
+    if (typeof activeNodeHighlight.bringToFront === 'function')
+      activeNodeHighlight.bringToFront();
   }
 
   function redrawNodeMarkers() {
@@ -627,8 +650,10 @@
         showForwardPolyline();
         const lat = parseFloat(li.dataset.lat);
         const lng = parseFloat(li.dataset.lng);
-        if (Number.isFinite(lat) && Number.isFinite(lng))
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
           map.flyTo([lat, lng], 17);
+          highlightRouteListNode(lat, lng);
+        }
       });
     });
   }
@@ -655,12 +680,16 @@
       alert('Select a start node and an end node on the map (two clicks).');
       return;
     }
-    refreshStartEndLabels();
     const adj = currentAdj.adj;
     if (!adj || adj.size === 0) {
       alert('No graph data yet. Wait for loading or pick another resort.');
       return;
     }
+
+    clearActiveNodeHighlight();
+    clearRouteLayers();
+    clearLists();
+
     const skill = el.skill.value;
     const goal = el.goal.value;
 
@@ -668,8 +697,6 @@
       forwardEdgeWeight(edge, skill, goal)
     );
     if (!forward) {
-      clearLists();
-      clearRouteLayers();
       lastForwardPath = null;
       lastReturnPath = null;
       alert('No forward route found between the selected nodes.');
@@ -680,7 +707,6 @@
     const backward = dijkstra(adj, endNode, startNode, returnEdgeWeight);
     lastReturnPath = backward;
 
-    clearRouteLayers();
     activeRouteView = 'forward';
     showForwardPolyline();
 
@@ -702,6 +728,7 @@
     endNode = null;
     if (selectionLabelsLayer) selectionLabelsLayer.clearLayers();
     updateStartEndStyles();
+    clearActiveNodeHighlight();
     clearRouteLayers();
     clearLists();
     lastForwardPath = null;
@@ -715,6 +742,7 @@
     startNode = null;
     endNode = null;
     if (selectionLabelsLayer) selectionLabelsLayer.clearLayers();
+    clearActiveNodeHighlight();
     clearRouteLayers();
     clearLists();
     lastForwardPath = null;
@@ -744,8 +772,10 @@
     if (li && li.dataset.lat != null && li.dataset.lng != null) {
       const la = parseFloat(li.dataset.lat);
       const ln = parseFloat(li.dataset.lng);
-      if (Number.isFinite(la) && Number.isFinite(ln))
+      if (Number.isFinite(la) && Number.isFinite(ln)) {
         map.flyTo([la, ln], 17);
+        highlightRouteListNode(la, ln);
+      }
     }
   });
 
