@@ -3,7 +3,7 @@
 
   const RESORTS = {
     'val-thorens': { bbox: '45.27,6.55,45.32,6.61', label: 'Val Thorens' },
-    whistler: { bbox: '50.05,-122.98,50.12,-122.85', label: 'Whistler' },
+    bansko: { bbox: '41.79,23.43,41.84,23.48', label: 'Bansko' },
     zermatt: { bbox: '45.98,7.70,46.03,7.77', label: 'Zermatt' },
   };
 
@@ -61,90 +61,67 @@
     return 'blue';
   }
 
-  function tierAboveForProgression(skill) {
-    switch (skill) {
-      case 'never':
-        return 'blue';
-      case 'first-week':
-        return 'red';
-      case 'low-intermediate':
-        return 'red';
-      case 'high-intermediate':
-        return 'black';
-      case 'advanced':
-      case 'expert':
-        return 'black';
-      default:
-        return 'black';
-    }
-  }
-
-  function tierBelowForComfort(skill) {
+  /** 0 = green … 3 = black; aligns with piste tiers. */
+  function skillOrdinal(skill) {
     switch (skill) {
       case 'never':
       case 'first-week':
+        return 0;
       case 'low-intermediate':
-        return 'green';
-      case 'high-intermediate':
-        return 'blue';
-      case 'advanced':
-      case 'expert':
-        return 'red';
-      default:
-        return 'green';
-    }
-  }
-
-  /** Skill baseline cost multiplier per piste tier (before goal tweak). */
-  function skillBaselineMultiplier(skill, tier) {
-    switch (skill) {
-      case 'never':
-        if (tier === 'green') return 0.1;
-        return Infinity;
-      case 'first-week':
-        if (tier === 'green') return 0.1;
-        if (tier === 'blue') return 1;
-        return Infinity;
-      case 'low-intermediate':
-        if (tier === 'blue') return 0.1;
-        if (tier === 'green') return 0.5;
-        if (tier === 'red') return 5;
-        return Infinity;
-      case 'high-intermediate':
-        if (tier === 'red') return 0.1;
-        if (tier === 'blue') return 0.5;
-        if (tier === 'black') return 5;
         return 1;
+      case 'high-intermediate':
+        return 2;
       case 'advanced':
       case 'expert':
-        if (tier === 'black') return 0.1;
-        if (tier === 'red') return 0.5;
-        if (tier === 'blue') return 1.5;
-        if (tier === 'green') return 2;
-        return 1;
+        return 3;
       default:
         return 1;
     }
   }
 
-  function applyGoalModifier(skill, goal, tier, mult) {
-    if (!Number.isFinite(mult)) return mult;
-    let m = mult;
-    if (goal === 'progression' && tier === tierAboveForProgression(skill))
-      m *= 0.62;
-    if (goal === 'comfort' && tier === tierBelowForComfort(skill)) m *= 0.72;
-    return m;
+  function tierOrdinal(tier) {
+    const o = { green: 0, blue: 1, red: 2, black: 3 };
+    const x = o[tier];
+    return x != null ? x : 1;
   }
 
-  /** Forward routing cost: strict skill tiers + goal; lifts moderated unless Direct. */
+  /**
+   * Forward edge cost: base Haversine length × multipliers for Route Goal + Skill.
+   * Goal values match `<select>`: Comfort | Relaxed | Progression
+   */
   function forwardEdgeWeight(edge, skill, goal) {
+    const d = edge.lengthM;
+    const G = String(goal);
+
     if (edge.isLift) {
-      return goal === 'direct' ? edge.lengthM : edge.lengthM * 1.85;
+      if (G === 'Relaxed') return d * 0.05;
+      return d * 1.2;
     }
+
     const tier = pisteTierFromTag(edge.difficulty);
-    const base = skillBaselineMultiplier(skill, tier);
-    const mult = applyGoalModifier(skill, goal, tier, base);
-    return edge.lengthM * mult;
+    const T = tierOrdinal(tier);
+    const S = skillOrdinal(skill);
+
+    if (G === 'Comfort') {
+      if (T > S) return d * 100;
+      if (T === S) return d * 0.1;
+      return d;
+    }
+
+    if (G === 'Progression') {
+      if (T >= S + 2) return d * 100;
+      if (T === S + 1) return d * 0.05;
+      if (T === S) return d * 0.5;
+      return d;
+    }
+
+    if (G === 'Relaxed') {
+      if (tier === 'green' || tier === 'blue') return d * 0.1;
+      if (tier === 'red' || tier === 'black') return d * 50;
+      return d * 0.1;
+    }
+
+    return d;
   }
 
   function returnEdgeWeight(edge) {
