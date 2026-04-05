@@ -3,7 +3,7 @@
 
   /** @typedef {{ id: string, lat: number, lon: number, label: string }} GraphNode */
   /** @typedef {{ lat: number, lon: number }} LatLon */
-  /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, difficulty: string|null, tags: Record<string,string>, polyline: LatLon[], wayName: string|null, wayIdx: number }} GraphEdge */
+  /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, isDownhill: boolean, difficulty: string|null, tags: Record<string,string>, polyline: LatLon[], wayName: string|null, wayIdx: number }} GraphEdge */
 
   /** @typedef {{ goal: string, userMaxPiste: number }} RoutingContext */
 
@@ -120,7 +120,7 @@ out geom;`;
   const $routeList = document.getElementById("route-steps");
   const $returnList = document.getElementById("return-trip-steps");
   const $returnSection = document.getElementById("return-trip-section");
-  const $returnPanel = document.getElementById("return-trip-panel");
+  const $returnTripBtn = document.getElementById("return-trip-toggle");
   const $loadingText = document.getElementById("loading-text");
   const $spinner = document.getElementById("loading-spinner");
   const $startDisp = document.getElementById("start-node-display");
@@ -291,21 +291,27 @@ out geom;`;
     };
   }
 
+  /** Match reward / mismatch penalty for skill + goal (Dijkstra minimizes total weight). */
+  const ROUTE_REWARD = 0.1;
+  const ROUTE_MISMATCH = 100;
+
   /**
-   * Return trip: penalize downhill pistes heavily; favor lifts and gentler connectors.
+   * Return trip: strongly prefer aerialways; avoid riding downhill pistes uphill.
    * @param {GraphEdge} edge
    */
   function edgeWeightReturnLiftPreferred(edge) {
     let w = edge.lengthMeters;
-    if (edge.isLift) return w * 0.35;
-    if (edge.difficulty === "easy") return w * 12;
-    return w * 500;
+    if (edge.isLift) return w * 0.01;
+    if (edge.isDownhill) return w * 1000;
+    return w;
   }
 
+  /**
+   * @param {GraphEdge} edge
+   * @param {RoutingContext} ctx
+   */
   function edgeWeight(edge, ctx) {
     let w = edge.lengthMeters;
-
-    if (ctx.goal === "direct") return w;
 
     if (edge.isLift) {
       if (ctx.goal === "relaxed") w *= 0.85;
@@ -314,20 +320,45 @@ out geom;`;
       return w;
     }
 
-    if (ctx.goal === "relaxed") w *= 5;
-    if (ctx.goal === "training") w *= 0.75;
-    if (ctx.goal === "scenic") w *= 1.15;
+    if (ctx.goal === "direct") return w;
 
-    const userMax = ctx.userMaxPiste;
     const P = pisteTier(edge.difficulty);
+    const userMax = ctx.userMaxPiste;
+    const g = ctx.goal;
 
-    if (ctx.goal === "progression") {
-      if (P > userMax + 1) w *= 100;
-      else if (P === userMax + 1) w *= 2.5;
-    } else {
-      if (P > userMax) w *= 100;
+    if (g === "relaxed") {
+      if (P === 1) w *= ROUTE_REWARD;
+      else if (P === 2) w *= 15;
+      else w *= ROUTE_MISMATCH;
+      return w;
     }
 
+    if (g === "progression") {
+      const stretch = Math.min(userMax + 1, 4);
+      if (P === stretch) w *= ROUTE_REWARD;
+      else if (P === userMax) w *= 0.25;
+      else if (P < userMax || P > stretch) w *= ROUTE_MISMATCH;
+      else w *= 50;
+      return w;
+    }
+
+    if (g === "training") {
+      w *= 0.75;
+      if (P > userMax) w *= ROUTE_MISMATCH;
+      return w;
+    }
+
+    if (g === "scenic") {
+      w *= 1.05;
+      if (P === userMax) w *= ROUTE_REWARD;
+      else if (P < userMax) w *= 25;
+      else if (P > userMax) w *= ROUTE_MISMATCH;
+      return w;
+    }
+
+    // comfort — stay at labeled skill
+    if (P === userMax) w *= ROUTE_REWARD;
+    else if (P < userMax || P > userMax) w *= ROUTE_MISMATCH;
     return w;
   }
 
@@ -429,7 +460,7 @@ out geom;`;
 
   function flyToRouteStep(latlng, isNode, nodeId) {
     if (!map || !latlng) return;
-    map.flyTo(latlng, 16, { duration: 0.55 });
+    map.flyTo(latlng, 17, { duration: 0 });
     if (isNode && nodeId) {
       pulseMarker(nodeId);
       const mk = nodeMarkers.get(nodeId);
@@ -461,20 +492,23 @@ out geom;`;
     $routeList.innerHTML = "";
     let stepNum = 1;
 
-    function addLi(text, className, onActivate) {
+    function addLi(text, className, lat, lng, isNode, nodeId) {
       const li = document.createElement("li");
       li.className = className;
       li.textContent = stepNum++ + ". " + text;
       li.setAttribute("tabindex", "0");
       li.setAttribute("role", "button");
-      li.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        onActivate();
+      function activate() {
+        if (lat == null || lng == null) return;
+        flyToRouteStep([lat, lng], isNode, nodeId);
+      }
+      li.addEventListener("click", function onRouteLiClick() {
+        activate();
       });
       li.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
           ev.preventDefault();
-          onActivate();
+          activate();
         }
       });
       $routeList.appendChild(li);
@@ -484,9 +518,8 @@ out geom;`;
       pathNodeIds.forEach((nodeId, i) => {
         const role = i === 0 ? "start" : i === pathNodeIds.length - 1 ? "end" : "via";
         const nu = nodeStore.get(nodeId);
-        addLi(vertexLineLabel(nodeId, role), "route-node-item", () => {
-          if (nu) flyToRouteStep([nu.lat, nu.lon], true, nodeId);
-        });
+        if (!nu) return;
+        addLi(vertexLineLabel(nodeId, role), "route-node-item", nu.lat, nu.lon, true, nodeId);
       });
       return;
     }
@@ -495,22 +528,20 @@ out geom;`;
       const role = i === 0 ? "start" : "via";
       const u = pathNodeIds[i];
       const nu = nodeStore.get(u);
-      addLi(vertexLineLabel(u, role), "route-node-item", () => {
-        if (nu) flyToRouteStep([nu.lat, nu.lon], true, u);
-      });
+      if (nu)
+        addLi(vertexLineLabel(u, role), "route-node-item", nu.lat, nu.lon, true, u);
 
       const e = pathEdges[i];
       const mid = edgeMidpointLatLng(e);
-      addLi(segmentLineLabel(e), "route-segment-item", () => {
-        if (mid) flyToRouteStep(mid, false, null);
-      });
+      const ml = mid ? mid[0] : null;
+      const mg = mid ? mid[1] : null;
+      addLi(segmentLineLabel(e), "route-segment-item", ml, mg, false, null);
     }
 
     const lastId = pathNodeIds[pathNodeIds.length - 1];
     const lastN = nodeStore.get(lastId);
-    addLi(vertexLineLabel(lastId, "end"), "route-node-item", () => {
-      if (lastN) flyToRouteStep([lastN.lat, lastN.lon], true, lastId);
-    });
+    if (lastN)
+      addLi(vertexLineLabel(lastId, "end"), "route-node-item", lastN.lat, lastN.lon, true, lastId);
   }
 
   function setReturnSectionVisible(visible) {
@@ -745,6 +776,7 @@ out geom;`;
         const base = {
           lengthMeters: len,
           isLift: way.isLift,
+          isDownhill: isDownhill,
           difficulty: way.diffNorm,
           tags: way.tags,
           wayName: way.wayName,
@@ -1123,14 +1155,8 @@ out geom;`;
     });
   }
 
-  if ($returnPanel) {
-    $returnPanel.addEventListener("click", onReturnTripPanelActivate);
-    $returnPanel.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        onReturnTripPanelActivate();
-      }
-    });
+  if ($returnTripBtn) {
+    $returnTripBtn.addEventListener("click", onReturnTripPanelActivate);
   }
 
   $resort.addEventListener("change", () => {

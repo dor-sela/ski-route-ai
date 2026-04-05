@@ -83,16 +83,6 @@ li.route-segment-item:focus {
   outline-offset: 1px;
 }
 
-.return-trip-panel:hover {
-  border-color: rgba(34, 211, 238, 0.55);
-  background: rgba(15, 23, 42, 0.95);
-}
-
-.return-trip-panel:focus {
-  outline: 2px solid rgba(34, 211, 238, 0.6);
-  outline-offset: 2px;
-}
-
 /* Forward route glow (Leaflet adds path to overlay pane) */
 .leaflet-interactive.route-glow-forward {
   filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.85));

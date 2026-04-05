@@ -117,7 +117,8 @@
 
       <p id="app-hint" class="text-xs text-slate-500 leading-relaxed">
         Select resort, skill, and goal; click two nodes for Start and End; then
-        <strong class="text-sky-400">Find Route</strong>. All pistes stay visible; the yellow glow shows the outbound path. Click the Return Trip box to preview the lift-favoring way back.
+        <strong class="text-sky-400">Find Route</strong>. Routing favors runs that match your settings. Yellow = outbound path; use
+        <strong class="text-cyan-400">Show Return Trip (Lifts)</strong> for the lift-heavy way back.
       </p>
 
       <div id="agent-output-section" class="agent-output-section hidden">
@@ -131,28 +132,29 @@
           Route — click here to show yellow path
         </h2>
         <p class="text-[11px] text-slate-500 mb-1">
-          Click any step to fly to zoom 16. Return trip stays off the map until you open it below.
+          Click any step to fly to that point at zoom 17. Return trip stays off the map until you use the button below.
         </p>
         <ul
           id="route-steps"
           class="route-steps-list bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[80px]"
         ></ul>
 
-        <div id="return-trip-section" class="return-trip-section hidden mt-4">
-          <div
-            id="return-trip-panel"
-            class="return-trip-panel bg-slate-900/80 border border-slate-600 rounded-lg p-3 text-sm text-slate-200 cursor-pointer select-none"
-            role="button"
-            tabindex="0"
-            title="Show return path on map (cyan)"
-          >
-            <h2 class="text-xs uppercase tracking-wide text-cyan-400/90 mb-1 pointer-events-none">
-              Return trip — click for cyan highlight
+        <div id="return-trip-section" class="return-trip-section hidden mt-4 space-y-2">
+          <div class="bg-slate-900/80 border border-slate-600 rounded-lg p-3 text-sm text-slate-200">
+            <h2 class="text-xs uppercase tracking-wide text-cyan-400/90 mb-2">
+              Return trip (lifts back up)
             </h2>
-            <p class="text-[10px] text-slate-500 mb-2 pointer-events-none">
-              Computed with lifts favored and downhill pistes heavily penalized (×500, easier green links less).
+            <button
+              type="button"
+              id="return-trip-toggle"
+              class="w-full py-2.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 active:bg-cyan-800 font-medium text-white transition-colors border border-cyan-500/50"
+            >
+              Show Return Trip (Lifts)
+            </button>
+            <p class="text-[10px] text-slate-500 mt-2">
+              Second route: End → Start with lifts ×0.01 and downhill pistes ×1000. Shows cyan on the map and hides the yellow forward line. Click <strong>Route</strong> above to switch back.
             </p>
-            <ul id="return-trip-steps" class="route-steps-list pointer-events-none"></ul>
+            <ul id="return-trip-steps" class="route-steps-list mt-2 border-t border-slate-600 pt-2"></ul>
           </div>
         </div>
       </div>
