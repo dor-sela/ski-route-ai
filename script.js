@@ -13,39 +13,43 @@
       name: "Val Thorens (France)",
       center: [45.295, 6.58],
       zoom: 14,
-      bbox: [45.28, 6.56, 45.31, 6.6],
+      bbox: [45.282, 6.562, 45.308, 6.598],
     },
     {
       id: "chamonix",
       name: "Chamonix (France)",
       center: [45.9237, 6.8694],
       zoom: 12,
-      bbox: [45.88, 6.84, 45.97, 7.06],
+      bbox: [45.895, 6.855, 45.955, 7.015],
     },
     {
       id: "zermatt",
       name: "Zermatt (Switzerland)",
       center: [45.9763, 7.6586],
       zoom: 12,
-      bbox: [45.94, 7.72, 46.02, 7.92],
+      bbox: [45.955, 7.725, 46.015, 7.82],
     },
     {
       id: "whistler",
       name: "Whistler Blackcomb (Canada)",
       center: [50.058, -122.963],
       zoom: 11,
-      bbox: [50.02, -123.08, 50.15, -122.85],
+      bbox: [50.03, -123.06, 50.13, -122.88],
     },
     {
       id: "st-anton",
       name: "St. Anton (Austria)",
       center: [47.1278, 10.2636],
       zoom: 13,
-      bbox: [47.095, 10.18, 47.16, 10.32],
+      bbox: [47.098, 10.19, 47.158, 10.31],
     },
   ];
 
-  const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+  const overpassEndpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+  ];
 
   function coordKey(lat, lon) {
     const rLat = Math.round(lat * 1e5) / 1e5;
@@ -53,23 +57,88 @@
     return rLat + "," + rLon;
   }
 
+  /**
+   * Tries each Overpass mirror; retries on 504/429 and on network errors by advancing to the next endpoint.
+   * @param {number[]} bbox [south, west, north, east]
+   */
   async function fetchResortData(bbox) {
     const [s, w, n, e] = bbox;
     const q =
-      `[out:json][timeout:125];
+      `[timeout:60][out:json];
 (
   way["piste:type"="downhill"](${s},${w},${n},${e});
   way["aerialway"](${s},${w},${n},${e});
 );
 out geom;`;
     const body = "data=" + encodeURIComponent(q);
-    const res = await fetch(OVERPASS_URL, {
-      method: "POST",
-      body,
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-    });
-    if (!res.ok) throw new Error("Overpass HTTP " + res.status);
-    return res.json();
+
+    /** @type {number} */
+    let lastHttpStatus = 0;
+    /** @type {Error|null} */
+    let lastError = null;
+
+    for (let i = 0; i < overpassEndpoints.length; i++) {
+      const url = overpassEndpoints[i];
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          body,
+          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        });
+
+        if (res.status === 504 || res.status === 429) {
+          lastHttpStatus = res.status;
+          continue;
+        }
+
+        if (!res.ok) {
+          lastHttpStatus = res.status;
+          continue;
+        }
+
+        return res.json();
+      } catch (e) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        continue;
+      }
+    }
+
+    const aggregated = new Error("OVERPASS_ALL_ENDPOINTS_FAILED");
+    aggregated.lastHttpStatus = lastHttpStatus;
+    aggregated.lastError = lastError;
+    throw aggregated;
+  }
+
+  function overpassFailureUserMessage(err) {
+    const st = err && typeof err.lastHttpStatus === "number" ? err.lastHttpStatus : 0;
+    if (st === 429) {
+      return "The public map servers are rate-limiting requests (Error 429). Please wait a few seconds and try again.";
+    }
+    if (st === 504 || st === 0) {
+      return "The public map servers are currently overloaded (Error 504). Please try again in a few seconds.";
+    }
+    return (
+      "Could not load ski map data from any mirror (HTTP " +
+      st +
+      "). Please try again in a few seconds."
+    );
+  }
+
+  function showOverpassFetchFailure(message) {
+    const html =
+      '<span class="text-amber-400">' + escapeHtml(message) + "</span>";
+    if ($appHint) $appHint.innerHTML = html;
+    setAgentOutputVisible(true);
+    if ($routeHeading)
+      $routeHeading.textContent = "Map data unavailable";
+    if ($routeList) {
+      $routeList.innerHTML =
+        '<li class="list-none text-amber-300 text-sm py-1">' +
+        escapeHtml(message) +
+        "</li>";
+    }
+    if ($returnList) $returnList.innerHTML = "";
+    setReturnSectionVisible(false);
   }
 
   /** @type {L.Map|null} */
@@ -1019,6 +1088,8 @@ out geom;`;
         setLoading(false);
         return;
       }
+      if ($routeHeading)
+        $routeHeading.textContent = "Route — click here to show yellow path";
       if (map && baseLayer) {
         map.setView(resort.center, resort.zoom);
         renderGraphOnMap();
@@ -1035,13 +1106,18 @@ out geom;`;
           "</strong> OSM ways. Set Start and End, then <strong>Find Route</strong>.";
     } catch (err) {
       console.error(err);
-      const msg =
-        err && err.message
-          ? String(err.message)
-          : "Unknown error (CORS or network). file:// may block fetch — use a static HTTP server.";
-      if ($appHint)
-        $appHint.innerHTML =
-          '<span class="text-red-400">Could not load resort data: ' + escapeHtml(msg) + "</span>";
+      if (err && err.message === "OVERPASS_ALL_ENDPOINTS_FAILED") {
+        showOverpassFetchFailure(overpassFailureUserMessage(err));
+        clearGraphLayer();
+      } else {
+        const msg =
+          err && err.message
+            ? String(err.message)
+            : "Unknown error (CORS or network). file:// may block fetch — use a static HTTP server.";
+        if ($appHint)
+          $appHint.innerHTML =
+            '<span class="text-red-400">Could not load resort data: ' + escapeHtml(msg) + "</span>";
+      }
     } finally {
       setLoading(false);
     }
