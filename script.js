@@ -90,6 +90,8 @@ out geom;`;
 
   /** @type {number[][]|null} */
   let lastReturnLatLngs = null;
+  /** @type {number[][]|null} */
+  let lastForwardLatLngs = null;
 
   /** @type {Map<string, GraphNode>} */
   let nodeStore = new Map();
@@ -125,6 +127,7 @@ out geom;`;
   const $endDisp = document.getElementById("end-node-display");
   const $appHint = document.getElementById("app-hint");
   const $agentSection = document.getElementById("agent-output-section");
+  const $routeHeading = document.getElementById("route-heading");
 
   function setLoading(on, msg) {
     if (on) {
@@ -163,6 +166,7 @@ out geom;`;
     removeForwardGlow();
     removeReturnGlow();
     lastReturnLatLngs = null;
+    lastForwardLatLngs = null;
   }
 
   /**
@@ -193,7 +197,7 @@ out geom;`;
         className: "route-glow-return",
         color: "#22d3ee",
         weight: 8,
-        opacity: 0.65,
+        opacity: 0.6,
         lineCap: "round",
         lineJoin: "round",
       });
@@ -288,13 +292,14 @@ out geom;`;
   }
 
   /**
-   * Return trip: strongly penalize downhill segments so lifts carry most of the cost.
+   * Return trip: penalize downhill pistes heavily; favor lifts and gentler connectors.
    * @param {GraphEdge} edge
    */
   function edgeWeightReturnLiftPreferred(edge) {
     let w = edge.lengthMeters;
-    if (!edge.isLift) w *= 100;
-    return w;
+    if (edge.isLift) return w * 0.35;
+    if (edge.difficulty === "easy") return w * 12;
+    return w * 500;
   }
 
   function edgeWeight(edge, ctx) {
@@ -394,42 +399,117 @@ out geom;`;
     return "Piste";
   }
 
-  function forwardStepTitle(nodeId, index, total) {
-    const n = nodeStore.get(nodeId);
-    const base = n && n.label ? n.label : "Waypoint";
-    if (index === 0) return base + " (Start)";
-    if (index === total - 1) return base + " (End)";
-    return base;
+  function edgeMidpointLatLng(edge) {
+    const pl = edge.polyline;
+    if (!pl || !pl.length) return null;
+    const m = pl[Math.floor(pl.length / 2)];
+    return [m.lat, m.lon];
   }
 
-  /** @param {string[]} pathNodeIds */
-  function fillForwardRouteNodeList(pathNodeIds) {
-    if (!$routeList) return;
+  function pulseMarker(nodeId) {
+    const mk = nodeMarkers.get(nodeId);
+    if (!mk) return;
+    let n = 0;
+    const timer = setInterval(() => {
+      const flashOn = n % 2 === 0;
+      mk.setStyle({
+        radius: flashOn ? 11 : 5,
+        weight: flashOn ? 3 : 2,
+        color: flashOn ? "#f59e0b" : "#eab308",
+        fillColor: flashOn ? "#fef9c3" : "#fde047",
+        fillOpacity: 1,
+      });
+      n++;
+      if (n >= 8) {
+        clearInterval(timer);
+        applyNodeMarkerStyle(nodeId, mk);
+      }
+    }, 130);
+  }
+
+  function flyToRouteStep(latlng, isNode, nodeId) {
+    if (!map || !latlng) return;
+    map.flyTo(latlng, 16, { duration: 0.55 });
+    if (isNode && nodeId) {
+      pulseMarker(nodeId);
+      const mk = nodeMarkers.get(nodeId);
+      if (mk) mk.openPopup();
+    }
+  }
+
+  function vertexLineLabel(nodeId, role) {
+    const n = nodeStore.get(nodeId);
+    const lbl = n && n.label ? n.label : "Unnamed junction";
+    if (role === "start") return "Vertex: " + lbl + " (Start)";
+    if (role === "end") return "Vertex: " + lbl + " (End)";
+    return "Vertex: " + lbl + " (via)";
+  }
+
+  function segmentLineLabel(e) {
+    const name = e.wayName || "Unnamed";
+    if (e.isLift) return "Lift: " + name;
+    return "Piste: " + name + " (" + difficultyListLabel(e.difficulty) + ")";
+  }
+
+  /**
+   * Outbound list: each vertex and each piste/lift segment, all clickable.
+   * @param {string[]} pathNodeIds
+   * @param {GraphEdge[]|null|undefined} pathEdges
+   */
+  function fillForwardRouteFull(pathNodeIds, pathEdges) {
+    if (!$routeList || !pathNodeIds.length) return;
     $routeList.innerHTML = "";
-    const total = pathNodeIds.length;
-    pathNodeIds.forEach((nodeId, index) => {
+    let stepNum = 1;
+
+    function addLi(text, className, onActivate) {
       const li = document.createElement("li");
-      li.className = "route-node-item";
-      li.textContent = index + 1 + ". " + forwardStepTitle(nodeId, index, total);
+      li.className = className;
+      li.textContent = stepNum++ + ". " + text;
       li.setAttribute("tabindex", "0");
       li.setAttribute("role", "button");
-      const fly = () => {
-        const n = nodeStore.get(nodeId);
-        if (!n || !map) return;
-        map.flyTo([n.lat, n.lon], Math.max(map.getZoom(), 15), { duration: 0.6 });
-        const mk = nodeMarkers.get(nodeId);
-        if (mk) {
-          mk.openPopup();
-        }
-      };
-      li.addEventListener("click", fly);
+      li.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        onActivate();
+      });
       li.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
           ev.preventDefault();
-          fly();
+          onActivate();
         }
       });
       $routeList.appendChild(li);
+    }
+
+    if (!pathEdges || !pathEdges.length) {
+      pathNodeIds.forEach((nodeId, i) => {
+        const role = i === 0 ? "start" : i === pathNodeIds.length - 1 ? "end" : "via";
+        const nu = nodeStore.get(nodeId);
+        addLi(vertexLineLabel(nodeId, role), "route-node-item", () => {
+          if (nu) flyToRouteStep([nu.lat, nu.lon], true, nodeId);
+        });
+      });
+      return;
+    }
+
+    for (let i = 0; i < pathEdges.length; i++) {
+      const role = i === 0 ? "start" : "via";
+      const u = pathNodeIds[i];
+      const nu = nodeStore.get(u);
+      addLi(vertexLineLabel(u, role), "route-node-item", () => {
+        if (nu) flyToRouteStep([nu.lat, nu.lon], true, u);
+      });
+
+      const e = pathEdges[i];
+      const mid = edgeMidpointLatLng(e);
+      addLi(segmentLineLabel(e), "route-segment-item", () => {
+        if (mid) flyToRouteStep(mid, false, null);
+      });
+    }
+
+    const lastId = pathNodeIds[pathNodeIds.length - 1];
+    const lastN = nodeStore.get(lastId);
+    addLi(vertexLineLabel(lastId, "end"), "route-node-item", () => {
+      if (lastN) flyToRouteStep([lastN.lat, lastN.lon], true, lastId);
     });
   }
 
@@ -453,17 +533,21 @@ out geom;`;
     }
 
     const nEnd = nodeStore.get(pathNodeIds[0]);
-    add((nEnd && nEnd.label ? nEnd.label : "End") + " (End)");
+    add(
+      "Vertex: " + (nEnd && nEnd.label ? nEnd.label : "End") + " (End)"
+    );
 
     const groups = mergePathEdgeGroups(pathEdges || []);
     for (const e of groups) {
-      const baseName = e.wayName || (e.isLift ? "Unnamed Lift" : "Unnamed Piste");
-      if (e.isLift) add(baseName + " (Lift)");
-      else add(baseName + " (" + difficultyListLabel(e.difficulty) + ")");
+      const baseName = e.wayName || "Unnamed";
+      if (e.isLift) add("Lift: " + baseName);
+      else add("Piste: " + baseName + " (" + difficultyListLabel(e.difficulty) + ")");
     }
 
     const nStart = nodeStore.get(pathNodeIds[pathNodeIds.length - 1]);
-    add((nStart && nStart.label ? nStart.label : "Start") + " (Start)");
+    add(
+      "Vertex: " + (nStart && nStart.label ? nStart.label : "Start") + " (Start)"
+    );
   }
 
   function clearOutputLists() {
@@ -814,6 +898,17 @@ out geom;`;
     return out;
   }
 
+  function showForwardHighlightOnMap() {
+    if (!lastForwardLatLngs || lastForwardLatLngs.length < 2 || !map) return;
+    removeReturnGlow();
+    showRouteGlow(lastForwardLatLngs, "forward");
+    map.fitBounds(L.latLngBounds(lastForwardLatLngs), {
+      padding: [48, 48],
+      maxZoom: 16,
+    });
+    bringNodeMarkersToFront();
+  }
+
   function onReturnTripPanelActivate() {
     if (!lastReturnLatLngs || lastReturnLatLngs.length < 2 || !map) return;
     removeForwardGlow();
@@ -829,13 +924,14 @@ out geom;`;
     removeReturnGlow();
 
     const forwardLatLngs = mergePathLatLngs(pathEdges, pathNodeIds);
+    lastForwardLatLngs = forwardLatLngs.slice();
     showRouteGlow(forwardLatLngs, "forward");
 
     if (forwardLatLngs.length >= 2 && map) {
       map.fitBounds(L.latLngBounds(forwardLatLngs), { padding: [48,48], maxZoom: 16 });
     }
 
-    fillForwardRouteNodeList(pathNodeIds);
+    fillForwardRouteFull(pathNodeIds, pathEdges);
     setAgentOutputVisible(true);
 
     const ret = dijkstra(adjacency, endNodeId, startNodeId, edgeWeightReturnLiftPreferred);
@@ -868,6 +964,8 @@ out geom;`;
     updateSelectionInputs();
     clearOutputLists();
     setAgentOutputVisible(false);
+    const r = RESORTS.find((x) => x.id === currentResortId);
+    if (map && r) map.setView(r.center, r.zoom);
     if ($appHint)
       $appHint.textContent =
         "Selection cleared. Click two nodes for Start and End, then Find Route.";
@@ -1011,6 +1109,19 @@ out geom;`;
 
   populateSelects();
   initMap();
+
+  if ($routeHeading) {
+    $routeHeading.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showForwardHighlightOnMap();
+    });
+    $routeHeading.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        showForwardHighlightOnMap();
+      }
+    });
+  }
 
   if ($returnPanel) {
     $returnPanel.addEventListener("click", onReturnTripPanelActivate);

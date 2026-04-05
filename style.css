@@ -63,6 +63,26 @@ li.route-node-item:focus {
   outline-offset: 1px;
 }
 
+li.route-segment-item {
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  margin-left: -0.35rem;
+  margin-right: -0.35rem;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+  border-left: 2px solid rgba(34, 211, 238, 0.35);
+  padding-left: 0.5rem;
+}
+
+li.route-segment-item:hover {
+  background: rgba(56, 189, 248, 0.1);
+}
+
+li.route-segment-item:focus {
+  outline: 1px solid rgba(56, 189, 248, 0.5);
+  outline-offset: 1px;
+}
+
 .return-trip-panel:hover {
   border-color: rgba(34, 211, 238, 0.55);
   background: rgba(15, 23, 42, 0.95);
@@ -79,7 +99,7 @@ li.route-node-item:focus {
 }
 
 .leaflet-interactive.route-glow-return {
-  filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.9));
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.85));
 }
 
 /* Persistent map legend (Leaflet control) */

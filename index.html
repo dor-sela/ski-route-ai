@@ -121,29 +121,38 @@
       </p>
 
       <div id="agent-output-section" class="agent-output-section hidden">
-        <h2 class="text-xs uppercase tracking-wide text-slate-400 mb-2">Route</h2>
-        <p class="text-[11px] text-slate-500 mb-1">Click a step to fly to that node on the map.</p>
+        <h2
+          id="route-heading"
+          class="route-heading text-xs uppercase tracking-wide text-slate-400 mb-1 cursor-pointer hover:text-sky-400 transition-colors"
+          role="button"
+          tabindex="0"
+          title="Show outbound route highlight on map"
+        >
+          Route — click here to show yellow path
+        </h2>
+        <p class="text-[11px] text-slate-500 mb-1">
+          Click any step to fly to zoom 16. Return trip stays off the map until you open it below.
+        </p>
         <ul
           id="route-steps"
           class="route-steps-list bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[80px]"
         ></ul>
 
         <div id="return-trip-section" class="return-trip-section hidden mt-4">
-          <h2 class="text-xs uppercase tracking-wide text-slate-400 mb-1">Return trip</h2>
-          <p class="text-[11px] text-slate-500 mb-2">
-            Lift-heavy route back (downhill edges ×100 in cost). Click the highlighted area to show the cyan return path on the map.
-          </p>
           <div
             id="return-trip-panel"
             class="return-trip-panel bg-slate-900/80 border border-slate-600 rounded-lg p-3 text-sm text-slate-200 cursor-pointer select-none"
             role="button"
             tabindex="0"
-            title="Show return path on map"
+            title="Show return path on map (cyan)"
           >
-            <div class="text-[10px] uppercase tracking-wide text-cyan-400/90 mb-2 font-semibold">
-              Return trip — click to highlight
-            </div>
-            <ul id="return-trip-steps" class="route-steps-list"></ul>
+            <h2 class="text-xs uppercase tracking-wide text-cyan-400/90 mb-1 pointer-events-none">
+              Return trip — click for cyan highlight
+            </h2>
+            <p class="text-[10px] text-slate-500 mb-2 pointer-events-none">
+              Computed with lifts favored and downhill pistes heavily penalized (×500, easier green links less).
+            </p>
+            <ul id="return-trip-steps" class="route-steps-list pointer-events-none"></ul>
           </div>
         </div>
       </div>
