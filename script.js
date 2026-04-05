@@ -3,7 +3,7 @@
 
   /** @typedef {{ id: string, lat: number, lon: number, label: string }} GraphNode */
   /** @typedef {{ lat: number, lon: number }} LatLon */
-  /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, difficulty: string|null, tags: Record<string,string>, polyline: LatLon[], wayName: string|null }} GraphEdge */
+  /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, difficulty: string|null, tags: Record<string,string>, polyline: LatLon[], wayName: string|null, wayIdx: number }} GraphEdge */
 
   const RESORTS = [
     {
@@ -82,6 +82,9 @@ out geom;`;
 
   let graphLayer = null;
   let routeLayer = null;
+  /** Piste/lift polylines aligned with `lastParsedWays` indices (not including node markers). */
+  /** @type {L.Polyline[]} */
+  let wayPolylines = [];
 
   /** @type {Map<string, GraphNode>} */
   let nodeStore = new Map();
@@ -176,6 +179,60 @@ out geom;`;
       default:
         return { color: "#64748b", weight: 2.5, opacity: 0.85 };
     }
+  }
+
+  /** Restore one track polyline to default ski styling (full opacity). */
+  function applyDefaultStyleToTrackPolyline(index) {
+    const pl = wayPolylines[index];
+    const way = lastParsedWays[index];
+    if (!pl || !way) return;
+    const st = pisteStyle(way.diffNorm, way.isLift);
+    pl.setStyle({
+      color: st.color,
+      weight: st.weight,
+      opacity: st.opacity,
+      dashArray: st.dashArray,
+      lineCap: st.lineCap || "round",
+    });
+  }
+
+  /** Reset every drawn piste/lift to original colors, weights, and full opacity. */
+  function resetAllTrackStyles() {
+    for (let i = 0; i < wayPolylines.length; i++) applyDefaultStyleToTrackPolyline(i);
+  }
+
+  /**
+   * Fade tracks whose way index is not used by the optimal path.
+   * @param {Set<number>} usedWayIndices
+   */
+  function dimTracksNotOnPath(usedWayIndices) {
+    for (let i = 0; i < wayPolylines.length; i++) {
+      if (usedWayIndices.has(i)) {
+        applyDefaultStyleToTrackPolyline(i);
+        continue;
+      }
+      const pl = wayPolylines[i];
+      const way = lastParsedWays[i];
+      if (!pl || !way) continue;
+      const base = pisteStyle(way.diffNorm, way.isLift);
+      pl.setStyle({
+        color: base.color,
+        weight: 1,
+        opacity: 0.15,
+        dashArray: base.dashArray,
+        lineCap: base.lineCap || "round",
+      });
+    }
+  }
+
+  /** @param {GraphEdge[]|null|undefined} pathEdges */
+  function pathUsedWayIndices(pathEdges) {
+    const s = new Set();
+    if (!pathEdges) return s;
+    for (const e of pathEdges) {
+      if (typeof e.wayIdx === "number") s.add(e.wayIdx);
+    }
+    return s;
   }
 
   /** @param {Record<string,string>} tags */
@@ -494,7 +551,7 @@ out geom;`;
       return atEnd || inter;
     }
 
-    parsed.forEach((way) => {
+    parsed.forEach((way, wayIdx) => {
       const idxs = [];
       for (let i = 0; i < way.coords.length; i++) {
         if (isGraphVertex(way, i)) idxs.push(i);
@@ -527,6 +584,7 @@ out geom;`;
           difficulty: way.diffNorm,
           tags: way.tags,
           wayName: way.wayName,
+          wayIdx: wayIdx,
         };
         addUndirectedEdge(ka, kb, { ...base, polyline: forward }, { ...base, polyline: backward });
       }
@@ -548,6 +606,7 @@ out geom;`;
       map.removeLayer(graphLayer);
       graphLayer = null;
     }
+    wayPolylines = [];
     nodeMarkers.clear();
   }
 
@@ -614,11 +673,14 @@ out geom;`;
     if (!map) return;
 
     graphLayer = L.layerGroup();
+    wayPolylines = [];
 
     lastParsedWays.forEach((way) => {
       const latlngs = way.coords.map((c) => [c.lat, c.lon]);
       const st = pisteStyle(way.diffNorm, way.isLift);
-      graphLayer.addLayer(L.polyline(latlngs, st));
+      const track = L.polyline(latlngs, st);
+      wayPolylines.push(track);
+      graphLayer.addLayer(track);
     });
 
     nodeStore.forEach((node, id) => {
@@ -645,6 +707,7 @@ out geom;`;
       map.removeLayer(routeLayer);
       routeLayer = null;
     }
+    resetAllTrackStyles();
   }
 
   function analyzePathFromNodePath(pathNodeIds) {
@@ -725,12 +788,16 @@ out geom;`;
     if (!pathNodeIds || pathNodeIds.length < 2) return;
     const latlngs = mergePathLatLngs(pathEdges, pathNodeIds);
 
+    resetAllTrackStyles();
+    const usedWays = pathUsedWayIndices(pathEdges);
+    dimTracksNotOnPath(usedWays);
+
     routeLayer = L.layerGroup();
     const routeLine = L.polyline(latlngs, {
       color: "yellow",
       weight: 4,
       dashArray: "5, 10",
-      opacity: 0.9,
+      opacity: 1,
       lineCap: "round",
       lineJoin: "round",
     });
@@ -877,8 +944,11 @@ out geom;`;
   }
 
   function onFindRoute() {
+    resetAllTrackStyles();
+
     const timeOfDay = $time.value;
     const nlp = parseAgentText($chat.value);
+
     if (!startNodeId || !endNodeId) {
       if ($appHint)
         $appHint.innerHTML =
