@@ -7,31 +7,6 @@
     zermatt: { bbox: '45.98,7.70,46.03,7.77', label: 'Zermatt' },
   };
 
-  const SKILL_VALUES = [
-    'never',
-    'first-week',
-    'low-intermediate',
-    'high-intermediate',
-    'advanced',
-    'expert',
-  ];
-
-  function skillRankFromSelect(value) {
-    const i = SKILL_VALUES.indexOf(value);
-    return i < 0 ? 0 : i;
-  }
-
-  /** Numeric trail difficulty for penalty/reward (0 = easiest) */
-  function osmDifficultyRank(tag) {
-    if (!tag) return 2;
-    const t = String(tag).toLowerCase();
-    if (t.includes('novice') || t === 'easy' || t.includes('beginner') || t === 'elementary') return 0;
-    if (t === 'intermediate') return 2;
-    if (t === 'advanced') return 3;
-    if (t.includes('expert') || t === 'extreme' || t.includes('freeride')) return 4;
-    return 2;
-  }
-
   function pisteColor(tag) {
     if (!tag) return '#3b82f6';
     const t = String(tag).toLowerCase();
@@ -72,48 +47,104 @@
     return d;
   }
 
-  /** Base length → forward-path weight with skill + goal */
-  function forwardEdgeWeight(edge, skillRank, goal) {
-    let w = edge.lengthM;
-    if (!edge.isLift) {
-      const dr = osmDifficultyRank(edge.difficulty);
-      if (dr > skillRank) w *= 100;
-      w *= goalMultiplier(goal, skillRank, dr, false);
-    }
-    return w;
+  /**
+   * Map OSM piste:difficulty to color tier (skill routing baseline).
+   */
+  function pisteTierFromTag(tag) {
+    if (!tag) return 'blue';
+    const t = String(tag).toLowerCase();
+    if (t.includes('novice') || t === 'easy' || t.includes('beginner') || t === 'elementary')
+      return 'green';
+    if (t === 'intermediate') return 'blue';
+    if (t === 'advanced') return 'red';
+    if (t.includes('expert') || t === 'extreme' || t.includes('freeride')) return 'black';
+    return 'blue';
   }
 
-  function goalMultiplier(goal, skillRank, difficultyRank, isLift) {
-    if (isLift) return 1;
-    switch (goal) {
-      case 'comfort': {
-        if (difficultyRank <= 0) return 0.4;
-        if (difficultyRank === 2) return 0.85;
-        if (difficultyRank >= 3) return 1.6;
+  function tierAboveForProgression(skill) {
+    switch (skill) {
+      case 'never':
+        return 'blue';
+      case 'first-week':
+        return 'red';
+      case 'low-intermediate':
+        return 'red';
+      case 'high-intermediate':
+        return 'black';
+      case 'advanced':
+      case 'expert':
+        return 'black';
+      default:
+        return 'black';
+    }
+  }
+
+  function tierBelowForComfort(skill) {
+    switch (skill) {
+      case 'never':
+      case 'first-week':
+      case 'low-intermediate':
+        return 'green';
+      case 'high-intermediate':
+        return 'blue';
+      case 'advanced':
+      case 'expert':
+        return 'red';
+      default:
+        return 'green';
+    }
+  }
+
+  /** Skill baseline cost multiplier per piste tier (before goal tweak). */
+  function skillBaselineMultiplier(skill, tier) {
+    switch (skill) {
+      case 'never':
+        if (tier === 'green') return 0.1;
+        return Infinity;
+      case 'first-week':
+        if (tier === 'green') return 0.1;
+        if (tier === 'blue') return 1;
+        return Infinity;
+      case 'low-intermediate':
+        if (tier === 'blue') return 0.1;
+        if (tier === 'green') return 0.5;
+        if (tier === 'red') return 5;
+        return Infinity;
+      case 'high-intermediate':
+        if (tier === 'red') return 0.1;
+        if (tier === 'blue') return 0.5;
+        if (tier === 'black') return 5;
         return 1;
-      }
-      case 'progression': {
-        const target = Math.min(4, skillRank + 1);
-        if (difficultyRank === target || (skillRank <= 2 && difficultyRank === 2))
-          return 0.1;
-        if (difficultyRank <= skillRank) return 0.9;
+      case 'advanced':
+      case 'expert':
+        if (tier === 'black') return 0.1;
+        if (tier === 'red') return 0.5;
+        if (tier === 'blue') return 1.5;
+        if (tier === 'green') return 2;
         return 1;
-      }
-      case 'relaxed': {
-        if (difficultyRank <= 0) return 0.1;
-        if (difficultyRank === 2) return 0.35;
-        return 2;
-      }
-      case 'training': {
-        if (difficultyRank === 2) return 0.45;
-        if (difficultyRank === 3) return 0.65;
-        if (difficultyRank <= 0) return 0.75;
-        return 1;
-      }
-      case 'direct':
       default:
         return 1;
     }
+  }
+
+  function applyGoalModifier(skill, goal, tier, mult) {
+    if (!Number.isFinite(mult)) return mult;
+    let m = mult;
+    if (goal === 'progression' && tier === tierAboveForProgression(skill))
+      m *= 0.62;
+    if (goal === 'comfort' && tier === tierBelowForComfort(skill)) m *= 0.72;
+    return m;
+  }
+
+  /** Forward routing cost: strict skill tiers + goal; lifts moderated unless Direct. */
+  function forwardEdgeWeight(edge, skill, goal) {
+    if (edge.isLift) {
+      return goal === 'direct' ? edge.lengthM : edge.lengthM * 1.85;
+    }
+    const tier = pisteTierFromTag(edge.difficulty);
+    const base = skillBaselineMultiplier(skill, tier);
+    const mult = applyGoalModifier(skill, goal, tier, base);
+    return edge.lengthM * mult;
   }
 
   function returnEdgeWeight(edge) {
@@ -134,6 +165,7 @@
 
     const prepared = ways.map((w) => {
       const geom = w.geometry || [];
+      const fullLatLng = geom.map((g) => [g.lat, g.lon]);
       const coords = geom.map((g) => ({
         lat: g.lat,
         lng: g.lon,
@@ -149,7 +181,7 @@
         (w.tags && (w.tags.name || w.tags['piste:name'] || w.tags.ref)) ||
         (isLift ? 'Lift' : 'Unnamed piste');
       const difficulty = w.tags && w.tags['piste:difficulty'];
-      return { w, coords, keys, isLift, name, difficulty };
+      return { w, coords, fullLatLng, keys, isLift, name, difficulty };
     });
 
     const nodeKeys = new Set();
@@ -165,7 +197,7 @@
       adj.get(v).push({ node: u, edge });
     }
 
-    prepared.forEach(({ coords, keys, isLift, name, difficulty, w }) => {
+    prepared.forEach(({ coords, fullLatLng, keys, isLift, name, difficulty, w }) => {
       let lastNodeIdx = -1;
       for (let i = 0; i < keys.length; i++) {
         if (!nodeKeys.has(keys[i])) continue;
@@ -174,9 +206,11 @@
           if (seg > 0) {
             const u = keys[lastNodeIdx];
             const v = keys[i];
+            const segmentCoords = fullLatLng.slice(lastNodeIdx, i + 1);
             const edge = {
               from: u,
               to: v,
+              coords: segmentCoords,
               lengthM: seg,
               isLift,
               name,
@@ -224,6 +258,7 @@
       outs.forEach(({ node: v, edge }) => {
         if (visited.has(v)) return;
         const w = weightFn(edge);
+        if (!Number.isFinite(w) || w === Infinity) return;
         const alt = dist.get(u) + w;
         if (alt < dist.get(v)) {
           dist.set(v, alt);
@@ -252,11 +287,36 @@
     return { pathNodes, pathEdges };
   }
 
-  function pathToLatLngs(pathNodes) {
-    return pathNodes.map((k) => {
-      const { lat, lng } = parseKey(k);
-      return [lat, lng];
-    });
+  /**
+   * Build one continuous lat/lng path following stored edge geometries,
+   * orienting each segment along the path direction.
+   */
+  function routePolylineFromPath(pathNodes, pathEdges) {
+    const pts = [];
+    function samePt(a, b) {
+      return (
+        Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9
+      );
+    }
+    for (let j = 0; j < pathEdges.length; j++) {
+      const e = pathEdges[j];
+      const a = pathNodes[j];
+      const b = pathNodes[j + 1];
+      let seg = e.coords;
+      if (!seg || seg.length < 2) continue;
+      if (e.from === a && e.to === b) {
+        // keep forward
+      } else if (e.from === b && e.to === a) {
+        seg = seg.slice().reverse();
+      }
+      if (pts.length === 0) {
+        for (let k = 0; k < seg.length; k++) pts.push(seg[k]);
+      } else {
+        const startIdx = samePt(pts[pts.length - 1], seg[0]) ? 1 : 0;
+        for (let k = startIdx; k < seg.length; k++) pts.push(seg[k]);
+      }
+    }
+    return pts;
   }
 
   // --- Map & state ---
@@ -265,6 +325,7 @@
   let slopesLayer;
   let waysLayerGroup;
   let nodesLayerGroup;
+  let selectionLabelsLayer;
   let forwardPolyline;
   let returnPolyline;
   /** @type {Map<string, L.CircleMarker>} */
@@ -303,7 +364,22 @@
     ];
   }
 
+  function ensureRouteLabelTooltipCss() {
+    if (document.getElementById('route-label-tooltip-css')) return;
+    const st = document.createElement('style');
+    st.id = 'route-label-tooltip-css';
+    st.textContent =
+      '.leaflet-tooltip.route-label-start{' +
+      'font-weight:700;color:#16a34a;background:#fff;padding:0.25rem 0.5rem;' +
+      'border-radius:0.25rem;border:1px solid #e2e8f0;}' +
+      '.leaflet-tooltip.route-label-end{' +
+      'font-weight:700;color:#dc2626;background:#fff;padding:0.25rem 0.5rem;' +
+      'border-radius:0.25rem;border:1px solid #e2e8f0;}';
+    document.head.appendChild(st);
+  }
+
   function initMap() {
+    ensureRouteLabelTooltipCss();
     map = L.map('map', { zoomControl: true });
 
     baseLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
@@ -327,6 +403,48 @@
 
     waysLayerGroup = L.layerGroup().addTo(map);
     nodesLayerGroup = L.layerGroup().addTo(map);
+    selectionLabelsLayer = L.layerGroup().addTo(map);
+  }
+
+  function refreshStartEndLabels() {
+    if (!selectionLabelsLayer) return;
+    selectionLabelsLayer.clearLayers();
+    if (startNode) {
+      const { lat, lng } = parseKey(startNode);
+      const m = L.circleMarker([lat, lng], {
+        radius: 12,
+        fillColor: '#22c55e',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 0.95,
+        interactive: false,
+      });
+      m.bindTooltip('START', {
+        permanent: true,
+        direction: 'top',
+        className:
+          'route-label-start font-bold text-green-600 bg-white px-2 py-1 rounded',
+      });
+      m.addTo(selectionLabelsLayer);
+    }
+    if (endNode) {
+      const { lat, lng } = parseKey(endNode);
+      const m = L.circleMarker([lat, lng], {
+        radius: 12,
+        fillColor: '#ef4444',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 0.95,
+        interactive: false,
+      });
+      m.bindTooltip('END', {
+        permanent: true,
+        direction: 'top',
+        className:
+          'route-label-end font-bold text-red-600 bg-white px-2 py-1 rounded',
+      });
+      m.addTo(selectionLabelsLayer);
+    }
   }
 
   function resortBboxString() {
@@ -403,6 +521,7 @@
       }
       m.setStyle({ fillColor: fill, color: stroke });
     });
+    refreshStartEndLabels();
   }
 
   function drawOriginalWays(ways) {
@@ -445,6 +564,17 @@
     redrawNodeMarkers();
   }
 
+  function polylineLatLngsFromRoute(path) {
+    let latlngs = routePolylineFromPath(path.pathNodes, path.pathEdges);
+    if (latlngs.length < 2) {
+      latlngs = path.pathNodes.map((k) => {
+        const p = parseKey(k);
+        return [p.lat, p.lng];
+      });
+    }
+    return latlngs;
+  }
+
   function showForwardPolyline() {
     if (!lastForwardPath) return;
     activeRouteView = 'forward';
@@ -452,7 +582,7 @@
       map.removeLayer(returnPolyline);
       returnPolyline = null;
     }
-    const latlngs = pathToLatLngs(lastForwardPath.pathNodes);
+    const latlngs = polylineLatLngsFromRoute(lastForwardPath);
     if (forwardPolyline) map.removeLayer(forwardPolyline);
     forwardPolyline = L.polyline(latlngs, {
       color: 'yellow',
@@ -468,7 +598,7 @@
       map.removeLayer(forwardPolyline);
       forwardPolyline = null;
     }
-    const latlngs = pathToLatLngs(lastReturnPath.pathNodes);
+    const latlngs = polylineLatLngsFromRoute(lastReturnPath);
     if (returnPolyline) map.removeLayer(returnPolyline);
     returnPolyline = L.polyline(latlngs, {
       color: 'cyan',
@@ -525,16 +655,17 @@
       alert('Select a start node and an end node on the map (two clicks).');
       return;
     }
+    refreshStartEndLabels();
     const adj = currentAdj.adj;
     if (!adj || adj.size === 0) {
       alert('No graph data yet. Wait for loading or pick another resort.');
       return;
     }
-    const skillRank = skillRankFromSelect(el.skill.value);
+    const skill = el.skill.value;
     const goal = el.goal.value;
 
     const forward = dijkstra(adj, startNode, endNode, (edge) =>
-      forwardEdgeWeight(edge, skillRank, goal)
+      forwardEdgeWeight(edge, skill, goal)
     );
     if (!forward) {
       clearLists();
@@ -569,6 +700,7 @@
   function resetSearch() {
     startNode = null;
     endNode = null;
+    if (selectionLabelsLayer) selectionLabelsLayer.clearLayers();
     updateStartEndStyles();
     clearRouteLayers();
     clearLists();
@@ -582,6 +714,7 @@
     setLoading(true);
     startNode = null;
     endNode = null;
+    if (selectionLabelsLayer) selectionLabelsLayer.clearLayers();
     clearRouteLayers();
     clearLists();
     lastForwardPath = null;
