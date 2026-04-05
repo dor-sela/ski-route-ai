@@ -1,9 +1,9 @@
 (function () {
   "use strict";
 
-  /** @typedef {{ id: string, lat: number, lon: number }} GraphNode */
+  /** @typedef {{ id: string, lat: number, lon: number, label: string }} GraphNode */
   /** @typedef {{ lat: number, lon: number }} LatLon */
-  /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, difficulty: string|null, tags: Record<string,string>, polyline: LatLon[] }} GraphEdge */
+  /** @typedef {{ to: string, lengthMeters: number, isLift: boolean, difficulty: string|null, tags: Record<string,string>, polyline: LatLon[], wayName: string|null }} GraphEdge */
 
   const RESORTS = [
     {
@@ -89,7 +89,7 @@ out geom;`;
   let adjacency = new Map();
 
   /** Raw ways for styling (from last build). */
-  /** @type {{ coords: LatLon[], tags: Record<string,string>, isLift: boolean, diffNorm: string|null }[]} */
+  /** @type {{ coords: LatLon[], tags: Record<string,string>, isLift: boolean, diffNorm: string|null, wayName: string|null }[]} */
   let lastParsedWays = [];
 
   /** @type {Map<string, L.CircleMarker>} */
@@ -113,6 +113,8 @@ out geom;`;
   const $spinner = document.getElementById("loading-spinner");
   const $startDisp = document.getElementById("start-node-display");
   const $endDisp = document.getElementById("end-node-display");
+  const $appHint = document.getElementById("app-hint");
+  const $agentSection = document.getElementById("agent-output-section");
 
   function setLoading(on, msg) {
     if (on) {
@@ -174,6 +176,104 @@ out geom;`;
       default:
         return { color: "#64748b", weight: 2.5, opacity: 0.85 };
     }
+  }
+
+  /** @param {Record<string,string>} tags */
+  function osmWayName(tags) {
+    const n = (tags.name || tags["name:en"] || "").trim();
+    return n || null;
+  }
+
+  /** After graph build, assign human-readable labels to vertices from incident named ways. */
+  function assignNodeLabels() {
+    nodeStore.forEach((node) => {
+      const names = [];
+      const seen = new Set();
+      for (const e of adjacency.get(node.id) || []) {
+        if (e.wayName && !seen.has(e.wayName)) {
+          seen.add(e.wayName);
+          names.push(e.wayName);
+        }
+      }
+      if (names.length >= 2) {
+        node.label =
+          "Intersection near " + names.slice(0, 2).join(" & ") + (names.length > 2 ? " +" + (names.length - 2) : "");
+      } else if (names.length === 1) {
+        node.label = "Junction near " + names[0];
+      } else {
+        node.label = "Waypoint (" + node.lat.toFixed(4) + ", " + node.lon.toFixed(4) + ")";
+      }
+    });
+  }
+
+  function mergePathEdgeGroups(pathEdges) {
+    if (!pathEdges || !pathEdges.length) return [];
+    const groups = [];
+    let cur = pathEdges[0];
+    for (let i = 1; i < pathEdges.length; i++) {
+      const e = pathEdges[i];
+      const merge =
+        !!(cur.wayName && e.wayName === cur.wayName && e.isLift === cur.isLift);
+      if (merge) continue;
+      groups.push(cur);
+      cur = e;
+    }
+    groups.push(cur);
+    return groups;
+  }
+
+  function difficultyRunPhrase(d) {
+    if (!d) return "ski run (grade not tagged)";
+    if (d === "easy") return "green run";
+    if (d === "intermediate") return "blue run";
+    if (d === "advanced") return "red run";
+    if (d === "expert") return "black run";
+    return "ski run";
+  }
+
+  function buildNarrativeHTML(pathNodeIds, pathEdges, nlp, timeOfDay) {
+    const startN = nodeStore.get(pathNodeIds[0]);
+    const endN = nodeStore.get(pathNodeIds[pathNodeIds.length - 1]);
+    const startName = (startN && startN.label) || pathNodeIds[0];
+    const endName = (endN && endN.label) || pathNodeIds[pathNodeIds.length - 1];
+
+    let html = "";
+    html += `<p>Based on your request for a <strong>${escapeHtml(nlp.skill)}</strong> route (goal: <strong>${escapeHtml(
+      nlp.goal
+    )}</strong>) at <strong>${escapeHtml(timeOfDay)}</strong>, I minimized cost on the live OSM ski network — distance (Haversine), time-of-day congestion on lifts, and terrain penalties from your agent profile.</p>`;
+
+    if (nlp.skill === "beginner") {
+      html += `<p>Interpreting this as a beginner-focused plan, I heavily penalized black and expert-tagged pistes so the solver prefers greens and blues wherever tags exist, similar to: “I avoided black runs.”</p>`;
+    }
+    if (nlp.skill === "expert") {
+      html += `<p>For an advanced skier, expert and advanced pistes receive lower effective cost than for a novice, so the line can follow steeper named runs when they shorten the path.</p>`;
+    }
+    if (nlp.goal === "warmup") {
+      html += `<p>Warmup routing nudges weights toward easier corridors for the first segments of your day.</p>`;
+    }
+
+    html += `<p class="mt-2"><strong>Step-by-step</strong> (piste and lift names from OpenStreetMap <code>name</code> tags where available):</p><ol>`;
+    html += `<li>Start at <strong>${escapeHtml(String(startName))}</strong>.</li>`;
+
+    const groups = mergePathEdgeGroups(pathEdges || []);
+    for (const e of groups) {
+      const nm = e.wayName || (e.isLift ? "Unnamed lift" : "Unnamed piste");
+      if (e.isLift) {
+        html += `<li>Take the <strong>${escapeHtml(nm)}</strong> lift.</li>`;
+      } else {
+        const col = difficultyRunPhrase(e.difficulty);
+        html += `<li>Ski down <strong>${escapeHtml(nm)}</strong> — the <strong>${escapeHtml(col)}</strong>. Follow the dashed yellow overlay; the green, blue, red, and black polylines remain visible underneath.</li>`;
+      }
+    }
+    html += `<li>Reach your destination at <strong>${escapeHtml(String(endName))}</strong>.</li>`;
+    html += `</ol>`;
+    return html;
+  }
+
+  function setAgentOutputVisible(visible) {
+    if (!$agentSection) return;
+    if (visible) $agentSection.classList.remove("hidden");
+    else $agentSection.classList.add("hidden");
   }
 
   function parseAgentText(text) {
@@ -350,7 +450,7 @@ out geom;`;
     lastParsedWays = [];
 
     const elements = json.elements || [];
-    /** @type {{ coords: LatLon[], tags: Record<string,string>, isLift: boolean, diffNorm: string|null }[]} */
+    /** @type {{ coords: LatLon[], tags: Record<string,string>, isLift: boolean, diffNorm: string|null, wayName: string|null }[]} */
     const parsed = [];
 
     for (const el of elements) {
@@ -361,7 +461,8 @@ out geom;`;
       if (!isDownhill && !isLift) continue;
       const coords = el.geometry.map((g) => ({ lat: g.lat, lon: g.lon }));
       const diffNorm = isDownhill ? normalizeDifficulty(tags) : null;
-      parsed.push({ coords, tags, isLift, diffNorm });
+      const wayName = osmWayName(tags);
+      parsed.push({ coords, tags, isLift, diffNorm, wayName });
     }
 
     lastParsedWays = parsed;
@@ -415,14 +516,17 @@ out geom;`;
         const len = polylineLengthMeters(forward);
         if (len < 0.25) continue;
 
-        if (!nodeStore.has(ka)) nodeStore.set(ka, { id: ka, lat: aPt.lat, lon: aPt.lon });
-        if (!nodeStore.has(kb)) nodeStore.set(kb, { id: kb, lat: bPt.lat, lon: bPt.lon });
+        if (!nodeStore.has(ka))
+          nodeStore.set(ka, { id: ka, lat: aPt.lat, lon: aPt.lon, label: "" });
+        if (!nodeStore.has(kb))
+          nodeStore.set(kb, { id: kb, lat: bPt.lat, lon: bPt.lon, label: "" });
 
         const base = {
           lengthMeters: len,
           isLift: way.isLift,
           difficulty: way.diffNorm,
           tags: way.tags,
+          wayName: way.wayName,
         };
         addUndirectedEdge(ka, kb, { ...base, polyline: forward }, { ...base, polyline: backward });
       }
@@ -435,6 +539,8 @@ out geom;`;
         adjacency.delete(id);
       }
     }
+
+    assignNodeLabels();
   }
 
   function clearGraphLayer() {
@@ -454,27 +560,27 @@ out geom;`;
     const isEnd = nodeId === endNodeId;
     if (isStart) {
       marker.setStyle({
-        radius: 9,
+        radius: 5,
         color: "#15803d",
-        weight: 3,
+        weight: 2,
         fillColor: "#4ade80",
         fillOpacity: 0.95,
       });
     } else if (isEnd) {
       marker.setStyle({
-        radius: 9,
+        radius: 5,
         color: "#b91c1c",
-        weight: 3,
+        weight: 2,
         fillColor: "#f87171",
         fillOpacity: 0.95,
       });
     } else {
       marker.setStyle({
-        radius: 6,
+        radius: 3,
         color: "#4338ca",
-        weight: 2,
+        weight: 1,
         fillColor: "#a5b4fc",
-        fillOpacity: 0.9,
+        fillOpacity: 0.85,
       });
     }
   }
@@ -482,7 +588,8 @@ out geom;`;
   function nodeLabel(nodeId) {
     const n = nodeStore.get(nodeId);
     if (!n) return "—";
-    return nodeId + "  (" + n.lat.toFixed(5) + ", " + n.lon.toFixed(5) + ")";
+    const title = n.label || n.id;
+    return title + "  (" + n.lat.toFixed(5) + ", " + n.lon.toFixed(5) + ")";
   }
 
   function updateSelectionInputs() {
@@ -516,14 +623,14 @@ out geom;`;
 
     nodeStore.forEach((node, id) => {
       const marker = L.circleMarker([node.lat, node.lon], {
-        radius: 6,
+        radius: 3,
         color: "#4338ca",
-        weight: 2,
+        weight: 1,
         fillColor: "#a5b4fc",
-        fillOpacity: 0.9,
+        fillOpacity: 0.85,
       });
       marker.on("click", (e) => onVertexMarkerClick(id, e));
-      marker.on("mouseover", () => marker.setStyle({ weight: 3 }));
+      marker.on("mouseover", () => marker.setStyle({ weight: 2 }));
       marker.on("mouseout", () => applyNodeMarkerStyle(id, marker));
       graphLayer.addLayer(marker);
       nodeMarkers.set(id, marker);
@@ -619,23 +726,15 @@ out geom;`;
     const latlngs = mergePathLatLngs(pathEdges, pathNodeIds);
 
     routeLayer = L.layerGroup();
-    const glow = L.polyline(latlngs, {
-      color: "#facc15",
-      weight: 16,
-      opacity: 0.35,
+    const routeLine = L.polyline(latlngs, {
+      color: "yellow",
+      weight: 4,
+      dashArray: "5, 10",
+      opacity: 0.9,
       lineCap: "round",
       lineJoin: "round",
     });
-    const core = L.polyline(latlngs, {
-      className: "route-glow",
-      color: "#eab308",
-      weight: 9,
-      opacity: 1,
-      lineCap: "round",
-      lineJoin: "round",
-    });
-    routeLayer.addLayer(glow);
-    routeLayer.addLayer(core);
+    routeLayer.addLayer(routeLine);
     routeLayer.addTo(map);
     map.fitBounds(L.latLngBounds(latlngs), { padding: [48, 48], maxZoom: 16 });
 
@@ -644,53 +743,44 @@ out geom;`;
         ? analyzePathFromEdges(pathEdges)
         : analyzePathFromNodePath(pathNodeIds);
     const liftCount = edgeStats.lift;
-
-    const parts = [];
-    parts.push(
-      `It is ${timeOfDay}. Applied congestion multipliers and your agent profile (${nlp.skill}, goal: ${nlp.goal}).`
-    );
     const liftPeak = calculateCongestion(timeOfDay, true) >= 3;
-    if (liftPeak && liftCount === 0) {
-      parts.push("Lift queues are peaking now; this route avoids lift legs where the graph allows.");
-    } else if (liftPeak && liftCount > 0) {
-      parts.push(
-        `Lift queues are peaking; ${liftCount} lift segment(s) still required — total cost minimized with Dijkstra.`
-      );
-    } else if (liftCount === 0) {
-      parts.push("No lift segments on this path under the loaded network.");
-    } else {
-      parts.push(`Includes ${liftCount} lift segment(s) between pistes.`);
-    }
 
     const bits = [];
-    if (edgeStats.easy) bits.push(`${edgeStats.easy} green/easy`);
-    if (edgeStats.intermediate) bits.push(`${edgeStats.intermediate} blue/intermediate`);
-    if (edgeStats.advanced) bits.push(`${edgeStats.advanced} red/advanced`);
-    if (edgeStats.expert) bits.push(`${edgeStats.expert} black/expert`);
-    if (edgeStats.unknown) bits.push(`${edgeStats.unknown} unpisted/unknown`);
-    if (bits.length) {
-      parts.push("Routed via: " + bits.join(", ") + " segments.");
-      if (nlp.goal === "warmup" && (edgeStats.easy > 0 || edgeStats.intermediate > 0)) {
-        parts.push("Warmup: blues/greens align with your stated easy start.");
-      }
-    }
+    if (edgeStats.easy) bits.push(edgeStats.easy + " green");
+    if (edgeStats.intermediate) bits.push(edgeStats.intermediate + " blue");
+    if (edgeStats.advanced) bits.push(edgeStats.advanced + " red");
+    if (edgeStats.expert) bits.push(edgeStats.expert + " black");
+    if (edgeStats.unknown) bits.push(edgeStats.unknown + " untagged");
 
-    if (nlp.skill === "beginner") parts.push("Beginner: hard pistes were heavily penalized in edge weight.");
-    if (nlp.skill === "expert") parts.push("Expert: steeper graded pistes were slightly favored vs. flat greens.");
+    let statsLine =
+      "Route legs: " +
+      (pathEdges && pathEdges.length ? pathEdges.length : pathNodeIds.length - 1) +
+      "; lifts on path: " +
+      liftCount +
+      ". ";
+    if (bits.length) statsLine += "Piste mix: " + bits.join(", ") + ". ";
+    if (liftPeak) statsLine += "At this hour, lift congestion multipliers are elevated.";
 
-    $out.innerHTML = "<p>" + parts.join(" ") + "</p>";
+    setAgentOutputVisible(true);
+    $out.innerHTML =
+      buildNarrativeHTML(pathNodeIds, pathEdges, nlp, timeOfDay) +
+      '<p class="mt-3 text-slate-400 text-xs leading-relaxed">' +
+      escapeHtml(statsLine) +
+      "</p>";
   }
 
   async function loadResort(resort) {
     setLoading(true, "Fetching pistes & lifts from Overpass…");
     clearRoute();
+    setAgentOutputVisible(false);
     try {
       const data = await fetchResortData(resort.bbox);
       setLoading(true, "Building graph from geometry…");
       buildGraphFromOverpassGeom(data);
       if (nodeStore.size === 0) {
-        $out.innerHTML =
-          "<p class='text-amber-400'>No ski geometry in this bbox. Try another resort.</p>";
+        if ($appHint)
+          $appHint.innerHTML =
+            '<span class="text-amber-400">No ski geometry in this bbox. Try another resort.</span>';
         clearGraphLayer();
         setLoading(false);
         return;
@@ -702,25 +792,33 @@ out geom;`;
       startNodeId = endNodeId = null;
       clickStage = 0;
       updateSelectionInputs();
-      $out.innerHTML = `<p>Loaded <strong>${nodeStore.size}</strong> graph nodes and <strong>${lastParsedWays.length}</strong> OSM ways. Click blue <strong>circle markers</strong> to set Start then End.</p>`;
+      if ($appHint)
+        $appHint.innerHTML =
+          "Loaded <strong>" +
+          nodeStore.size +
+          "</strong> graph nodes and <strong>" +
+          lastParsedWays.length +
+          "</strong> OSM ways. Click small nodes to set <strong>Start</strong> then <strong>End</strong>; open the agent panel with <strong>Find Route</strong>.";
     } catch (err) {
       console.error(err);
       const msg =
         err && err.message
           ? String(err.message)
           : "Unknown error (CORS or network). file:// may block fetch — use a static HTTP server.";
-      $out.innerHTML =
-        "<p class='text-red-400'>Could not load resort data: " + escapeHtml(msg) + "</p>";
+      if ($appHint)
+        $appHint.innerHTML =
+          '<span class="text-red-400">Could not load resort data: ' + escapeHtml(msg) + "</span>";
     } finally {
       setLoading(false);
     }
   }
 
   function initMap() {
-    map = L.map("map", { zoomControl: true });
+    map = L.map("map", { zoomControl: true, maxZoom: 22 });
 
     baseLayer = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
-      maxZoom: 17,
+      maxZoom: 22,
+      maxNativeZoom: 17,
       attribution:
         'Map: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors,' +
         ' <a href="http://viewfinderpanoramas.org">SRTM</a> | ' +
@@ -729,11 +827,28 @@ out geom;`;
     }).addTo(map);
 
     L.tileLayer("https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png", {
-      maxZoom: 18,
+      maxZoom: 22,
+      maxNativeZoom: 18,
       opacity: 0.55,
       attribution:
         'Ski slopes overlay: &copy; <a href="https://slopes.waymarkedtrails.org/">Waymarked Trails</a>',
     }).addTo(map);
+
+    const legend = L.control({ position: "bottomright" });
+    legend.onAdd = function () {
+      const div = L.DomUtil.create("div", "map-legend leaflet-bar");
+      div.innerHTML =
+        "<h3>Legend</h3>" +
+        '<div class="row"><span class="swatch" style="background:#22c55e"></span> Piste: green (easy)</div>' +
+        '<div class="row"><span class="swatch" style="background:#2563eb"></span> Piste: blue</div>' +
+        '<div class="row"><span class="swatch" style="background:#dc2626"></span> Piste: red</div>' +
+        '<div class="row"><span class="swatch" style="background:#0f172a;border:1px solid #64748b"></span> Piste: black</div>' +
+        '<div class="row"><span class="swatch lift"></span> Lift: grey, dashed</div>';
+      L.DomEvent.disableClickPropagation(div);
+      L.DomEvent.disableScrollPropagation(div);
+      return div;
+    };
+    legend.addTo(map);
 
     const r = RESORTS[0];
     map.setView(r.center, r.zoom);
@@ -765,20 +880,27 @@ out geom;`;
     const timeOfDay = $time.value;
     const nlp = parseAgentText($chat.value);
     if (!startNodeId || !endNodeId) {
-      $out.innerHTML =
-        "<p class='text-amber-400'>Set Start and End by clicking two circle markers (nodes) on the map.</p>";
+      if ($appHint)
+        $appHint.innerHTML =
+          '<span class="text-amber-400">Click two graph nodes on the map for Start and End first.</span>';
+      setAgentOutputVisible(false);
       return;
     }
     if (startNodeId === endNodeId) {
-      $out.innerHTML = "<p class='text-amber-400'>Start and End must be different nodes.</p>";
+      if ($appHint)
+        $appHint.innerHTML =
+          '<span class="text-amber-400">Start and End must be different nodes.</span>';
+      setAgentOutputVisible(false);
       return;
     }
 
     const wfn = (e) => edgeWeight(e, timeOfDay, nlp);
     const result = dijkstra(adjacency, startNodeId, endNodeId, wfn);
     if (!result.path) {
-      $out.innerHTML =
-        "<p class='text-amber-400'>No connected route between the selected nodes in the current graph.</p>";
+      if ($appHint)
+        $appHint.innerHTML =
+          '<span class="text-amber-400">No connected route between the chosen nodes in this graph.</span>';
+      setAgentOutputVisible(false);
       clearRoute();
       return;
     }

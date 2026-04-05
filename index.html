@@ -95,15 +95,17 @@
         <p id="loading-text" class="text-sm text-slate-400 hidden">Loading resort data…</p>
       </div>
 
-      <div>
+      <p id="app-hint" class="text-xs text-slate-500 leading-relaxed">
+        Select a resort, click two small nodes on the map for Start and End, optionally describe your goals, then
+        <strong class="text-sky-400">Find Route</strong>. The detailed agent narrative appears after a route is found.
+      </p>
+
+      <div id="agent-output-section" class="agent-output-section hidden">
         <h2 class="text-xs uppercase tracking-wide text-slate-400 mb-2">Agent output</h2>
         <div
           id="agent-output"
           class="agent-output bg-slate-900/80 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 min-h-[120px]"
-        >
-          Select a resort, click two graph nodes for Start and End, optionally describe your goals, then
-          <strong class="text-sky-400">Find Route</strong>.
-        </div>
+        ></div>
       </div>
     </aside>
   </div>
