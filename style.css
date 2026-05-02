@@ -37,9 +37,9 @@
 }
 
 .forward-route-warning.forward-route-warning--uphill {
-  border-color: rgba(34, 211, 238, 0.5);
-  background: rgba(22, 78, 99, 0.35);
-  color: #a5f3fc;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(120, 53, 15, 0.35);
+  color: #fde68a;
 }
 
 .forward-route-warning.hidden {
@@ -70,11 +70,11 @@
 }
 
 #forward-header.forward-header-uphill {
-  color: #67e8f9;
+  color: #fcd34d;
 }
 
 #forward-header.forward-header-uphill:hover {
-  color: #a5f3fc;
+  color: #fde68a;
 }
 
 /* Leaflet needs explicit height from parent flex */

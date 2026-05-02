@@ -551,9 +551,12 @@
   }
 
   function ensureRouteLabelCss() {
-    if (document.getElementById('ski-agent-route-css')) return;
+    const legacy = document.getElementById('ski-agent-route-css');
+    if (legacy) legacy.remove();
+    const STYLE_ID = 'ski-agent-route-css-v4';
+    if (document.getElementById(STYLE_ID)) return;
     const st = document.createElement('style');
-    st.id = 'ski-agent-route-css';
+    st.id = STYLE_ID;
     st.textContent =
       '.leaflet-tooltip.route-label-start{' +
       'font-weight:700;color:#16a34a;background:#fff;padding:0.25rem 0.5rem;' +
@@ -563,6 +566,8 @@
       'border-radius:0.25rem;border:1px solid #e2e8f0;}' +
       '.ski-hotel-star-wrap{background:transparent!important;border:none!important;' +
       'font-size:18px;line-height:18px;text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.7);}' +
+      '.ski-hotel-star-wrap .ski-poi-star{color:#bfa76a!important;font-size:17px;line-height:17px;' +
+      'text-shadow:0 1px 3px rgba(0,0,0,.85);}' +
       '.leaflet-tooltip.ski-hotel-tip{' +
       'font-size:11px;font-weight:600;background:#fffbeb;color:#7c2d12;padding:2px 6px;' +
       'border:1px solid #f59e0b;border-radius:3px;}' +
@@ -599,14 +604,14 @@
     });
   }
 
-  /** POI markers from JSON (goldenrod ★); tooltip = name or “POI”. */
+  /** POI markers from JSON (muted gold ★ via .ski-poi-star); tooltip = name or “POI”. */
   function drawHotelMarkersFromElements(elements) {
     if (!hotelsLayerGroup) return;
     hotelsLayerGroup.clearLayers();
 
     const starIcon = L.divIcon({
       className: 'ski-hotel-star-wrap',
-      html: '<span style="color:#DAA520;">★</span>',
+      html: '<span class="ski-poi-star" style="color:#bfa76a" aria-hidden="true">★</span>',
       iconSize: [18, 18],
       iconAnchor: [9, 9],
     });
@@ -1146,7 +1151,7 @@
       note.textContent =
         'Return: lifts End→Start (details in the notice above).';
       note.style.marginBottom = '0.35rem';
-      note.style.color = '#bae6fd';
+      note.style.color = '#e9d79c';
       note.style.listStyle = 'none';
       el.returnList.appendChild(note);
       if (lastReturnPath) pathToListItems(lastReturnPath, el.returnList, true);
@@ -1162,7 +1167,7 @@
           ? 'Return: same lifts reversed (see notice above).'
           : 'Return: lifts End→Start.';
       note.style.marginBottom = '0.35rem';
-      note.style.color = '#bae6fd';
+      note.style.color = '#e9d79c';
       note.style.listStyle = 'none';
       el.returnList.appendChild(note);
       if (lastReturnPath) pathToListItems(lastReturnPath, el.returnList, true);
