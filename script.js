@@ -468,6 +468,18 @@
     return pts;
   }
 
+  /** True when Return path nodes are Forward nodes in reverse (same lifts corridor, opposite direction). */
+  function pathsAreReverseMirror(forwardPath, returnPath) {
+    if (!forwardPath || !returnPath || !forwardPath.pathNodes || !returnPath.pathNodes) return false;
+    const fn = forwardPath.pathNodes;
+    const rn = returnPath.pathNodes;
+    if (fn.length !== rn.length || fn.length === 0) return false;
+    for (let i = 0; i < fn.length; i++) {
+      if (fn[i] !== rn[rn.length - 1 - i]) return false;
+    }
+    return true;
+  }
+
   let map;
   let waysLayerGroup;
   let nodesLayerGroup;
@@ -540,7 +552,10 @@
       'border:2px solid rgba(254,202,202,.95);background:rgba(153,27,27,.96);color:#fff;' +
       'box-shadow:0 0 0 1px rgba(0,0,0,.35);}' +
       '.forward-route-warning.forward-route-warning--uphill{' +
-      'border:2px solid rgba(251,191,36,.65);background:rgba(120,53,15,.88);color:#fef3c7;}';
+      'border:2px solid rgba(251,191,36,.65);background:rgba(120,53,15,.88);color:#fef3c7;}' +
+      '.ski-forward-mirror-note{margin-top:12px;padding:10px 12px;border-radius:8px;' +
+      'background:rgba(251,191,36,.22);border:2px solid rgba(251,191,36,.75);' +
+      'color:#fffbeb;font-weight:700;line-height:1.45;}';
     document.head.appendChild(st);
   }
 
@@ -588,7 +603,7 @@
     }
   }
 
-  function setForwardRouteUi(liftReason, elevationClause) {
+  function setForwardRouteUi(liftReason, elevationClause, mirrorLiftCorridor) {
     const skill = liftReason === 'skill';
     const uphill = liftReason === 'uphill';
 
@@ -607,16 +622,25 @@
       if (skill) {
         el.forwardRouteWarning.innerHTML =
           '<strong>No downhill ski route matches your skill level / route goal</strong> between these markers — ' +
-          'every reachable ski connection here is rated above what we allow for your choices. ' +
-          '<strong>Showing lifts only</strong> so you can still move across the resort.';
+          'every reachable ski connection here is rated above what we allow for your choices, so pistes along those paths are too difficult for what you selected. ' +
+          '<strong>The cyan route is lifts-only along Start→End</strong> so you can still move across the resort.';
         el.forwardRouteWarning.classList.add('forward-route-warning--skill');
         el.forwardRouteWarning.classList.remove('hidden');
       } else if (uphill) {
         let txt =
           '<strong>No downhill ski route</strong> from Start to End along pistes (given slope direction). ' +
-          '<strong>This cyan route uses lifts — it is mainly an ascent</strong> toward your destination.';
+          '<strong>This cyan route uses lifts — mainly an ascent</strong> toward your destination.';
         if (elevationClause) {
           txt += ' ' + elevationClause;
+        }
+        if (mirrorLiftCorridor) {
+          txt +=
+            '<div class="ski-forward-mirror-note">' +
+            '📍 <strong>Same lifts corridor Forward & Return</strong> — both lists describe the same lifts path (Start→End vs End→Start). ' +
+            (elevationClause
+              ? 'Together with the height hint above, this confirms you are on a <strong>lifts-only uphill itinerary</strong>.'
+              : 'That pattern strongly suggests a <strong>lifts-only itinerary</strong>, often because your <strong>Start is lower than your End</strong> (climbing uphill).') +
+            '</div>';
         }
         el.forwardRouteWarning.innerHTML = txt;
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
@@ -987,39 +1011,17 @@
       : null;
     lastReturnPath = ret ? { pathNodes: ret.pathNodes, pathEdges: ret.pathEdges } : null;
 
+    const mirrorLiftCorridor =
+      !!lastForwardPath &&
+      !!lastReturnPath &&
+      pathsAreReverseMirror(lastForwardPath, lastReturnPath);
+
     activeRouteView = 'forward';
-    setForwardRouteUi(lastForwardLiftReason, elevClauseHtml);
+    setForwardRouteUi(lastForwardLiftReason, elevClauseHtml, mirrorLiftCorridor && lastForwardLiftReason === 'uphill');
 
     if (lastForwardPath) {
       el.forwardList.innerHTML = '';
-      if (lastForwardLiftReason === 'skill') {
-        const msgLi = document.createElement('li');
-        msgLi.textContent =
-          'No downhill ski route matches your skill level and route goal — pistes along reachable paths are too difficult for what you selected. Below is a lifts-only route along Start→End.';
-        msgLi.style.marginBottom = '0.65rem';
-        msgLi.style.padding = '8px 10px';
-        msgLi.style.borderRadius = '6px';
-        msgLi.style.background = 'rgba(127,29,29,.55)';
-        msgLi.style.border = '1px solid rgba(248,113,113,.55)';
-        msgLi.style.color = '#fecaca';
-        msgLi.style.fontWeight = '700';
-        msgLi.style.listStyle = 'none';
-        el.forwardList.appendChild(msgLi);
-        pathToListItems(lastForwardPath, el.forwardList, true);
-      } else if (lastForwardLiftReason === 'uphill') {
-        const msgLi = document.createElement('li');
-        msgLi.textContent =
-          'No downhill ski route along pistes from Start to End (slope directions). Below is lifts-only — mainly uphill toward your destination.';
-        msgLi.style.marginBottom = '0.65rem';
-        msgLi.style.color = '#fcd34d';
-        msgLi.style.fontStyle = 'italic';
-        msgLi.style.fontWeight = '600';
-        msgLi.style.listStyle = 'none';
-        el.forwardList.appendChild(msgLi);
-        pathToListItems(lastForwardPath, el.forwardList, true);
-      } else {
-        pathToListItems(lastForwardPath, el.forwardList, false);
-      }
+      pathToListItems(lastForwardPath, el.forwardList, false);
       bindForwardListFlyTo();
       showForwardPolyline();
     } else {
@@ -1040,8 +1042,8 @@
     if (lastForwardLiftReason === 'skill') {
       const note = document.createElement('li');
       note.textContent =
-        'Return Trip: lifts from End back toward Start (shown below when available). Forward above stays lifts-only because your skill settings block pistes.';
-      note.style.marginBottom = '0.5rem';
+        'Return Trip — lifts End→Start (reverse). Details below; full explanation is in the banner above.';
+      note.style.marginBottom = '0.35rem';
       note.style.color = '#bae6fd';
       note.style.listStyle = 'none';
       el.returnList.appendChild(note);
@@ -1054,8 +1056,10 @@
     } else if (lastForwardLiftReason === 'uphill') {
       const note = document.createElement('li');
       note.textContent =
-        'Return Trip mirrors the usual lifts-back pattern (End→Start). Forward above is lifts-only uphill along your Start→End choice.';
-      note.style.marginBottom = '0.5rem';
+        mirrorLiftCorridor
+          ? 'Return Trip — same lifts corridor reversed (End→Start); see highlighted notice above.'
+          : 'Return Trip — lifts End→Start when available.';
+      note.style.marginBottom = '0.35rem';
       note.style.color = '#bae6fd';
       note.style.listStyle = 'none';
       el.returnList.appendChild(note);
