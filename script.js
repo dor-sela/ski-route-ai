@@ -15,25 +15,81 @@
 
   const ROUTE_MODE = { SKI_FORWARD: 'ski', LIFT_RETURN: 'lift' };
 
-  const HOTEL_TOURISM_TAGS = ['hotel', 'alpine_hut', 'chalet', 'guest_house', 'hostel', 'motel'];
+  /** Lodging tags — nodes & ways from OSM extract (expand to surface every hotel-like POI in JSON). */
+  const LODGING_TOURISM_TAGS = [
+    'hotel',
+    'motel',
+    'guest_house',
+    'hostel',
+    'alpine_hut',
+    'chalet',
+    'apartments',
+    'apartment',
+    'camp_site',
+    'caravan_site',
+    'wilderness_hut',
+    'homestay',
+    'resort',
+  ];
 
-  function isHotelNode(element) {
-    if (!element || element.type !== 'node' || !element.tags) return false;
-    const tags = element.tags;
-    const tourism = tags.tourism != null ? String(tags.tourism).toLowerCase().trim() : '';
-    if (tourism && HOTEL_TOURISM_TAGS.indexOf(tourism) !== -1) return true;
-    const amenity = tags.amenity != null ? String(tags.amenity).toLowerCase().trim() : '';
-    if (amenity === 'hotel') return true;
+  function normTag(v) {
+    return v != null ? String(v).toLowerCase().trim() : '';
+  }
+
+  function tagsSuggestLodging(tags) {
+    if (!tags) return false;
+    const tourism = normTag(tags.tourism);
+    if (tourism && LODGING_TOURISM_TAGS.indexOf(tourism) !== -1) return true;
+    const amenity = normTag(tags.amenity);
+    if (amenity === 'hotel' || amenity === 'motel') return true;
+    const building = normTag(tags.building);
+    if (building === 'hotel') return true;
     return false;
   }
 
-  function hotelDisplayName(tags) {
-    if (!tags || tags.name == null || String(tags.name).trim() === '') return 'Hotel';
-    return String(tags.name);
+  /**
+   * Graph POIs from JSON (distinct from routable intersection nodes).
+   * Includes standalone nodes and lodging ways (centroid of geometry).
+   */
+  function collectLodgingMarkersFromElements(elements) {
+    const out = [];
+    const seenPos = new Set();
+    function tryAdd(lat, lon, tags) {
+      if (lat == null || lon == null) return;
+      const dedupeKey =
+        lat.toFixed(5) + ',' + lon.toFixed(5) + '|' + normTag(tags && tags.name);
+      if (seenPos.has(dedupeKey)) return;
+      seenPos.add(dedupeKey);
+      const label =
+        tags && tags.name != null && String(tags.name).trim() !== ''
+          ? String(tags.name)
+          : 'Hotel';
+      out.push({ lat: lat, lon: lon, tags: tags, label: label });
+    }
+
+    if (!elements || !elements.length) return out;
+
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (!el.tags || !tagsSuggestLodging(el.tags)) continue;
+
+      if (el.type === 'node') {
+        tryAdd(el.lat, el.lon, el.tags);
+      } else if (el.type === 'way' && el.geometry && el.geometry.length >= 2) {
+        let sumLat = 0;
+        let sumLon = 0;
+        const g = el.geometry;
+        for (let k = 0; k < g.length; k++) {
+          sumLat += g[k].lat;
+          sumLon += g[k].lon;
+        }
+        tryAdd(sumLat / g.length, sumLon / g.length, el.tags);
+      }
+    }
+    return out;
   }
 
   function pisteColor(tag) {
-    if (!tag) return '#3b82f6';
     const t = String(tag).toLowerCase();
     if (t.includes('novice') || t === 'easy' || t.includes('beginner') || t === 'elementary')
       return '#22c55e';
@@ -226,6 +282,8 @@
               name: row.name,
               difficulty: row.isLift ? null : row.difficulty,
               wayId: row.w.id,
+              downhillFrom: row.isLift ? null : u,
+              downhillTo: row.isLift ? null : v,
             });
           }
         }
@@ -237,9 +295,11 @@
   }
 
   /**
+   * Dijkstra on adjacency graph.
+   * @param enforceDownhillSki When true (ski-forward mode only): pistes traverse only downhillFrom→downhillTo along OSM geometry; lifts bidirectional.
    * @returns {{ pathNodes: string[], pathEdges: object[], totalCost: number } | null}
    */
-  function dijkstra(adj, start, end, weightFn) {
+  function dijkstra(adj, start, end, weightFn, enforceDownhillSki) {
     const nodes = Array.from(adj.keys());
     const dist = new Map();
     const prev = new Map();
@@ -272,6 +332,7 @@
         const v = outs[j].node;
         const edge = outs[j].edge;
         if (visited.has(v)) continue;
+        if (enforceDownhillSki && edge.downhillFrom != null && edge.downhillFrom !== u) continue;
         const w = weightFn(edge);
         if (!Number.isFinite(w) || w === Infinity) continue;
         const alt = dist.get(u) + w;
@@ -304,9 +365,16 @@
   }
 
   function routeShortest(adj, start, end, mode, skill, goal) {
-    return dijkstra(adj, start, end, function (edge) {
-      return edgeWeight(edge, mode, skill, goal);
-    });
+    const enforceDownhill = mode === ROUTE_MODE.SKI_FORWARD;
+    return dijkstra(
+      adj,
+      start,
+      end,
+      function (edge) {
+        return edgeWeight(edge, mode, skill, goal);
+      },
+      enforceDownhill
+    );
   }
 
   function routePolylineFromPath(pathNodes, pathEdges) {
@@ -421,11 +489,10 @@
     });
   }
 
-  /** Hotel POIs from JSON nodes with a star icon and hover tooltip. */
+  /** Lodging markers from JSON (nodes + lodging ways centroid); ★ + hover tooltip. */
   function drawHotelMarkersFromElements(elements) {
     if (!hotelsLayerGroup) return;
     hotelsLayerGroup.clearLayers();
-    if (!elements || !elements.length) return;
 
     const starIcon = L.divIcon({
       className: 'ski-hotel-star-wrap',
@@ -434,15 +501,11 @@
       iconAnchor: [9, 9],
     });
 
-    for (let i = 0; i < elements.length; i++) {
-      const node = elements[i];
-      if (!isHotelNode(node)) continue;
-      const lat = node.lat;
-      const lon = node.lon;
-      if (lat == null || lon == null) continue;
-
-      const marker = L.marker([lat, lon], { icon: starIcon, interactive: true });
-      marker.bindTooltip(hotelDisplayName(node.tags), {
+    const markers = collectLodgingMarkersFromElements(elements);
+    for (let i = 0; i < markers.length; i++) {
+      const row = markers[i];
+      const marker = L.marker([row.lat, row.lon], { icon: starIcon, interactive: true });
+      marker.bindTooltip(row.label, {
         direction: 'top',
         sticky: false,
         className: 'ski-hotel-tip',
@@ -461,7 +524,7 @@
     if (el.forwardRouteWarning) {
       if (isLiftFallback) {
         el.forwardRouteWarning.textContent =
-          'No downhill ski route from Start to End. Showing a lift-only return-style route to reach the destination.';
+          'No downhill ski route between your chosen start and end. Showing a lifts-only route along your Start→End choice.';
         el.forwardRouteWarning.classList.remove('hidden');
       } else {
         el.forwardRouteWarning.textContent = '';
@@ -723,7 +786,7 @@
   }
 
   function bindForwardListFlyTo() {
-    el.forwardList.querySelectorAll('li').forEach(function (li) {
+    el.forwardList.querySelectorAll('li[data-lat]').forEach(function (li) {
       li.addEventListener('click', function (e) {
         e.stopPropagation();
         showForwardPolyline();
@@ -737,8 +800,8 @@
     });
   }
 
-  function pathToListItems(pathResult, ul) {
-    ul.innerHTML = '';
+  function pathToListItems(pathResult, ul, skipClear) {
+    if (!skipClear) ul.innerHTML = '';
     if (!pathResult || !pathResult.pathNodes || !pathResult.pathNodes.length) return;
     const pathNodes = pathResult.pathNodes;
     const pathEdges = pathResult.pathEdges || [];
@@ -810,7 +873,20 @@
     setForwardRouteUi(!!lastForwardPath && lastForwardIsLiftFallback);
 
     if (lastForwardPath) {
-      pathToListItems(lastForwardPath, el.forwardList);
+      el.forwardList.innerHTML = '';
+      if (lastForwardIsLiftFallback) {
+        const msgLi = document.createElement('li');
+        msgLi.textContent =
+          'No downhill ski route between your chosen start and end markers. Below is a lifts-only route from Start to End (e.g. heading back uphill toward lodging).';
+        msgLi.style.marginBottom = '0.65rem';
+        msgLi.style.color = '#fcd34d';
+        msgLi.style.fontStyle = 'italic';
+        msgLi.style.listStyle = 'none';
+        el.forwardList.appendChild(msgLi);
+        pathToListItems(lastForwardPath, el.forwardList, true);
+      } else {
+        pathToListItems(lastForwardPath, el.forwardList, false);
+      }
       bindForwardListFlyTo();
       showForwardPolyline();
     } else {
