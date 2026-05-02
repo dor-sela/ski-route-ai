@@ -33,41 +33,25 @@
 
   const ROUTE_MODE = { SKI_FORWARD: 'ski', LIFT_RETURN: 'lift' };
 
-  /** Lodging tags — nodes & ways from OSM extract (expand to surface every hotel-like POI in JSON). */
-  const LODGING_TOURISM_TAGS = [
-    'hotel',
-    'motel',
-    'guest_house',
-    'hostel',
-    'alpine_hut',
-    'chalet',
-    'apartments',
-    'apartment',
-    'camp_site',
-    'caravan_site',
-    'wilderness_hut',
-    'homestay',
-    'resort',
-  ];
+  /** POI tag filters — hotels/huts/chalets (tourism) + eat/drink (amenity). Does not affect piste/lift graph build. */
+  const POI_TOURISM_TAGS = new Set(['hotel', 'alpine_hut', 'chalet']);
+  const POI_AMENITY_TAGS = new Set(['restaurant', 'cafe', 'pub', 'bar']);
 
   function normTag(v) {
     return v != null ? String(v).toLowerCase().trim() : '';
   }
 
-  function tagsSuggestLodging(tags) {
+  function tagsSuggestPoi(tags) {
     if (!tags) return false;
     const tourism = normTag(tags.tourism);
-    if (tourism && LODGING_TOURISM_TAGS.indexOf(tourism) !== -1) return true;
+    if (tourism && POI_TOURISM_TAGS.has(tourism)) return true;
     const amenity = normTag(tags.amenity);
-    if (amenity === 'hotel' || amenity === 'motel') return true;
-    const building = normTag(tags.building);
-    if (building === 'hotel') return true;
+    if (amenity && POI_AMENITY_TAGS.has(amenity)) return true;
     return false;
   }
 
   /**
-   * Graph POIs from JSON (distinct from routable intersection nodes).
-   * Includes standalone nodes and lodging ways (centroid of geometry).
+   * POIs from JSON for map markers only (nodes + ways). Ways use center.lat/lon when present, else geometry centroid.
    */
   function collectLodgingMarkersFromElements(elements) {
     const out = [];
@@ -81,7 +65,7 @@
       const label =
         tags && tags.name != null && String(tags.name).trim() !== ''
           ? String(tags.name)
-          : 'Hotel';
+          : 'POI';
       out.push({ lat: lat, lon: lon, tags: tags, label: label });
     }
 
@@ -89,14 +73,17 @@
 
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
-      if (!el.tags || !tagsSuggestLodging(el.tags)) continue;
+      if (!el.tags || !tagsSuggestPoi(el.tags)) continue;
 
       if (el.type === 'node') {
         tryAdd(el.lat, el.lon, el.tags);
-      } else if (el.type === 'way' && tagsSuggestLodging(el.tags)) {
+      } else if (el.type === 'way') {
         let lat;
         let lon;
-        if (el.geometry && el.geometry.length >= 2) {
+        if (el.center && el.center.lat != null && el.center.lon != null) {
+          lat = el.center.lat;
+          lon = el.center.lon;
+        } else if (el.geometry && el.geometry.length >= 2) {
           let sumLat = 0;
           let sumLon = 0;
           const g = el.geometry;
@@ -106,9 +93,6 @@
           }
           lat = sumLat / g.length;
           lon = sumLon / g.length;
-        } else if (el.center && el.center.lat != null && el.center.lon != null) {
-          lat = el.center.lat;
-          lon = el.center.lon;
         }
         if (lat != null && lon != null) tryAdd(lat, lon, el.tags);
       }
@@ -617,14 +601,14 @@
     });
   }
 
-  /** Lodging markers from JSON (nodes + lodging ways centroid); ★ + hover tooltip. */
+  /** POI markers from JSON (purple ★); tooltip = name or “POI”. */
   function drawHotelMarkersFromElements(elements) {
     if (!hotelsLayerGroup) return;
     hotelsLayerGroup.clearLayers();
 
     const starIcon = L.divIcon({
       className: 'ski-hotel-star-wrap',
-      html: '<span style="color:#fbbf24;">★</span>',
+      html: '<span style="color:#9333ea;">★</span>',
       iconSize: [18, 18],
       iconAnchor: [9, 9],
     });
@@ -657,26 +641,22 @@
   function mirrorAscentHebrewHtml() {
     return (
       '<p dir="rtl" class="ski-mirror-he-note">' +
-      'שימו לב: מסלול ההלוך ומסלול החזרה חופפים לאותה מסילת משקעות (בכיוונים הפוכים). ההלוך כאן הוא בעיקר מסלול עלייה במשקעות.' +
+      'שימו לב: הלוך וחזר על אותה מסילת משקעות (כיוונים הפוכים); ההלוך בעיקר עלייה במשקעות.' +
       '</p>'
     );
   }
 
   /**
-   * Prominent lifts-heavy strip — used when outbound is lifts-first; optional for skill when geography matches.
+   * Compact lifts-heavy strip — outbound lifts-first; optional for skill when geography matches.
    */
   function buildAscentPopHtml(ctx) {
     const bits = [];
-    bits.push(
-      '📍 <strong>Lifts-heavy outbound leg</strong> — reaching your End relies heavily on lifts rather than downhill pistes.'
-    );
+    bits.push('📍 <strong>Mostly lifts</strong> toward your End.');
     if (ctx.mirrorLiftCorridor) {
-      bits.push(
-        '<strong>Same lifts corridor Forward ↔ Return:</strong> both lists trace the same lift lines (opposite directions).'
-      );
+      bits.push('<strong>Same lift corridor</strong> there &amp; back.');
     }
     if (ctx.liftOnlyForward) {
-      bits.push('<strong>Every step here is a lift</strong> — at least one lift is required along this corridor.');
+      bits.push('<strong>Lift-only</strong> leg — no pistes here.');
     }
     if (ctx.elevAscentKnow && ctx.elevClauseHtml) {
       bits.push(ctx.elevClauseHtml);
@@ -705,9 +685,9 @@
 
     if (el.forwardHeaderTitle) {
       if (skill) {
-        el.forwardHeaderTitle.textContent = '🚠 Lifts Route — Above Your Skill Settings';
+        el.forwardHeaderTitle.textContent = '🚠 Lifts — above your settings';
       } else if (uphill) {
-        el.forwardHeaderTitle.textContent = '🚠 Uphill Lifts Route';
+        el.forwardHeaderTitle.textContent = '🚠 Mostly lifts';
       } else {
         el.forwardHeaderTitle.textContent = 'Forward Route';
       }
@@ -729,9 +709,7 @@
       if (skill) {
         let txt =
           heMirror +
-          '<strong>No downhill ski route matches your skill level / route goal</strong> between these markers — ' +
-          'every reachable ski connection here is rated above what we allow for your choices, so pistes along those paths are too difficult for what you selected. ' +
-          '<strong>The cyan route is lifts-only along Start→End</strong> so you can still move across the resort.';
+          '<strong>Pistes Start→End exceed your skill / route goal.</strong> Showing <strong>lifts-only</strong> (cyan).';
         const showAscentStrip =
           mirrorLiftCorridor || elevAscentKnow || latProxyAscent || liftOnlyForward;
         if (showAscentStrip) {
@@ -744,8 +722,7 @@
         scrollForwardNoticeIntoView();
       } else if (uphill) {
         let txt =
-          heMirror +
-          '<strong>Lifts-first route Start→End</strong> — getting to your End uses lifts heavily (cyan line). ';
+          heMirror + '<strong>Lifts-heavy route Start→End</strong> (cyan). ';
         txt += buildAscentPopHtml(ascentCtx);
         el.forwardRouteWarning.innerHTML = txt;
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
@@ -755,7 +732,7 @@
       } else if (mirrorLiftCorridor) {
         el.forwardRouteWarning.innerHTML =
           heMirror +
-          '<p style="margin:0;line-height:1.45;color:#e0f2fe;font-size:.95rem;">Return uses the same lift corridor reversed (maximum lifts where the graph allows).</p>';
+          '<p style="margin:0;line-height:1.45;color:#e0f2fe;font-size:.95rem;">Return: same lifts reversed (max lifts).</p>';
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
         el.forwardRouteWarning.classList.remove('hidden');
         el.forwardRouteWarning.style.display = 'block';
@@ -1121,16 +1098,15 @@
       if (zs != null && ze != null && zs + 25 < ze) {
         elevAscentKnow = true;
         elevClauseHtml =
-          '<strong>Height hint from nearby OSM survey points:</strong> Start ~' +
+          '<strong>Height hint:</strong> Start ~' +
           Math.round(zs) +
-          ' m vs End ~' +
+          ' m, End ~' +
           Math.round(ze) +
-          ' m — <strong>your Start is lower than your End</strong>, so this pairing climbs mainly by lifts.';
+          ' m — mostly uphill by lifts.';
       } else if (latProxyEndHigherLikely(ps, pe, el.resort.value)) {
         latProxyAscent = true;
         latProxyClauseHtml =
-          '<strong>Position hint (few elevation survey points nearby):</strong> End sits farther north on the map than Start — ' +
-          'in Val Thorens summits usually lie upslope that way, so reaching End typically requires lifts.';
+          '<strong>Map hint:</strong> End north of Start (VT) — expect lifts.';
       }
     }
 
@@ -1178,8 +1154,7 @@
     el.returnList.innerHTML = '';
     if (lastForwardLiftReason === 'skill') {
       const note = document.createElement('li');
-      note.textContent =
-        'Return Trip — lifts End→Start (reverse). Details below; full explanation is in the banner above.';
+      note.textContent = 'Return — lifts End→Start (see banner).';
       note.style.marginBottom = '0.35rem';
       note.style.color = '#bae6fd';
       note.style.listStyle = 'none';
@@ -1193,9 +1168,7 @@
     } else if (lastForwardLiftReason === 'uphill') {
       const note = document.createElement('li');
       note.textContent =
-        mirrorLiftCorridor
-          ? 'Return Trip — same lifts corridor reversed (End→Start); see highlighted notice above.'
-          : 'Return Trip — lifts End→Start when available.';
+        mirrorLiftCorridor ? 'Return — same lifts reversed (see banner).' : 'Return — lifts End→Start.';
       note.style.marginBottom = '0.35rem';
       note.style.color = '#bae6fd';
       note.style.listStyle = 'none';
