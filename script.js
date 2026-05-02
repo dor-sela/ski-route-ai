@@ -13,6 +13,24 @@
     zermatt: './data/zermatt.json',
   };
 
+  /** Extra OSM lodging extract for Val Thorens — base ski JSON omits many tourism-tagged hotels on buildings */
+  const VAL_THORENS_LODGING_OVERLAY_URL = './data/val_thorens_lodging_overlay.json';
+
+  async function mergeLodgingElementsForMap(mainElements, resortValue) {
+    if (resortValue !== 'val-thorens') return mainElements;
+    try {
+      const r = await fetch(VAL_THORENS_LODGING_OVERLAY_URL);
+      if (!r.ok) return mainElements;
+      const ov = await r.json();
+      const extra = ov.elements || [];
+      if (!extra.length) return mainElements;
+      return mainElements.concat(extra);
+    } catch (err) {
+      console.warn('Val Thorens lodging overlay:', err);
+      return mainElements;
+    }
+  }
+
   const ROUTE_MODE = { SKI_FORWARD: 'ski', LIFT_RETURN: 'lift' };
 
   /** Lodging tags — nodes & ways from OSM extract (expand to surface every hotel-like POI in JSON). */
@@ -75,15 +93,24 @@
 
       if (el.type === 'node') {
         tryAdd(el.lat, el.lon, el.tags);
-      } else if (el.type === 'way' && el.geometry && el.geometry.length >= 2) {
-        let sumLat = 0;
-        let sumLon = 0;
-        const g = el.geometry;
-        for (let k = 0; k < g.length; k++) {
-          sumLat += g[k].lat;
-          sumLon += g[k].lon;
+      } else if (el.type === 'way' && tagsSuggestLodging(el.tags)) {
+        let lat;
+        let lon;
+        if (el.geometry && el.geometry.length >= 2) {
+          let sumLat = 0;
+          let sumLon = 0;
+          const g = el.geometry;
+          for (let k = 0; k < g.length; k++) {
+            sumLat += g[k].lat;
+            sumLon += g[k].lon;
+          }
+          lat = sumLat / g.length;
+          lon = sumLon / g.length;
+        } else if (el.center && el.center.lat != null && el.center.lon != null) {
+          lat = el.center.lat;
+          lon = el.center.lon;
         }
-        tryAdd(sumLat / g.length, sumLon / g.length, el.tags);
+        if (lat != null && lon != null) tryAdd(lat, lon, el.tags);
       }
     }
     return out;
@@ -119,6 +146,39 @@
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  /** OSM nodes that carry ele=* — used only for coarse altitude hints in UI messages */
+  let cachedEleSamples = [];
+
+  function rebuildEleSamplesFromElements(elements) {
+    cachedEleSamples = [];
+    if (!elements || !elements.length) return;
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (el.type !== 'node' || !el.tags || el.lat == null || el.lon == null) continue;
+      const raw = el.tags.ele;
+      if (raw == null || String(raw).trim() === '') continue;
+      const z = parseFloat(String(raw).replace(/[^0-9.\-]/g, ''));
+      if (!Number.isFinite(z)) continue;
+      cachedEleSamples.push({ lat: el.lat, lng: el.lon, z: z });
+    }
+  }
+
+  function approximateElevationM(lat, lng) {
+    if (!cachedEleSamples.length || lat == null || lng == null) return null;
+    const pt = { lat: lat, lng: lng };
+    let bestZ = null;
+    let bestD = Infinity;
+    for (let i = 0; i < cachedEleSamples.length; i++) {
+      const s = cachedEleSamples[i];
+      const d = haversineM(pt, { lat: s.lat, lng: s.lng });
+      if (d < bestD && d < 900) {
+        bestD = d;
+        bestZ = s.z;
+      }
+    }
+    return bestZ;
   }
 
   function segmentLengthM(coords, fromIdx, toIdx) {
@@ -377,6 +437,15 @@
     );
   }
 
+  /** Directed downhill connectivity ignoring skill penalties — detects “blocked by skill” vs “no downhill path”. */
+  function skiConnectivityEdgeWeight(edge) {
+    return edge.lengthM;
+  }
+
+  function routePhysicalSkiConnectivity(adj, start, end) {
+    return dijkstra(adj, start, end, skiConnectivityEdgeWeight, true);
+  }
+
   function routePolylineFromPath(pathNodes, pathEdges) {
     const pts = [];
     function samePt(a, b) {
@@ -417,8 +486,8 @@
   let lastForwardPath = null;
   /** @type {{ pathNodes: string[], pathEdges: object[] } | null} */
   let lastReturnPath = null;
-  /** True when forward route is the lift-only fallback (no ski route exists). */
-  let lastForwardIsLiftFallback = false;
+  /** null | 'skill' | 'uphill' — primary forward poly uses lifts-only cyan when non-null */
+  let lastForwardLiftReason = null;
   /** @type {L.CircleMarker | null} */
   let activeNodeHighlight = null;
 
@@ -465,9 +534,13 @@
       '.leaflet-tooltip.ski-hotel-tip{' +
       'font-size:11px;font-weight:600;background:#fffbeb;color:#7c2d12;padding:2px 6px;' +
       'border:1px solid #f59e0b;border-radius:3px;}' +
-      '.forward-route-warning{margin:6px 0 8px;padding:8px 10px;font-size:12px;line-height:1.35;' +
-      'border:1px solid rgba(245,158,11,.45);background:rgba(120,53,15,.45);color:#fef3c7;' +
-      'border-radius:6px;}';
+      '.forward-route-warning{margin:6px 0 8px;padding:10px 12px;font-size:12px;line-height:1.45;' +
+      'border-radius:6px;font-weight:600;}' +
+      '.forward-route-warning.forward-route-warning--skill{' +
+      'border:2px solid rgba(254,202,202,.95);background:rgba(153,27,27,.96);color:#fff;' +
+      'box-shadow:0 0 0 1px rgba(0,0,0,.35);}' +
+      '.forward-route-warning.forward-route-warning--uphill{' +
+      'border:2px solid rgba(251,191,36,.65);background:rgba(120,53,15,.88);color:#fef3c7;}';
     document.head.appendChild(st);
   }
 
@@ -515,18 +588,41 @@
     }
   }
 
-  function setForwardRouteUi(isLiftFallback) {
+  function setForwardRouteUi(liftReason, elevationClause) {
+    const skill = liftReason === 'skill';
+    const uphill = liftReason === 'uphill';
+
     if (el.forwardHeaderTitle) {
-      el.forwardHeaderTitle.textContent = isLiftFallback
-        ? '🚠 Lift-Only Route (No Ski Path)'
-        : 'Forward Route';
+      if (skill) {
+        el.forwardHeaderTitle.textContent = '🚠 Lifts Route — Above Your Skill Settings';
+      } else if (uphill) {
+        el.forwardHeaderTitle.textContent = '🚠 Uphill Lifts Route';
+      } else {
+        el.forwardHeaderTitle.textContent = 'Forward Route';
+      }
     }
+
     if (el.forwardRouteWarning) {
-      if (isLiftFallback) {
-        el.forwardRouteWarning.textContent =
-          'No downhill ski route between your chosen start and end. Showing a lifts-only route along your Start→End choice.';
+      el.forwardRouteWarning.classList.remove('forward-route-warning--skill', 'forward-route-warning--uphill');
+      if (skill) {
+        el.forwardRouteWarning.innerHTML =
+          '<strong>No downhill ski route matches your skill level / route goal</strong> between these markers — ' +
+          'every reachable ski connection here is rated above what we allow for your choices. ' +
+          '<strong>Showing lifts only</strong> so you can still move across the resort.';
+        el.forwardRouteWarning.classList.add('forward-route-warning--skill');
+        el.forwardRouteWarning.classList.remove('hidden');
+      } else if (uphill) {
+        let txt =
+          '<strong>No downhill ski route</strong> from Start to End along pistes (given slope direction). ' +
+          '<strong>This cyan route uses lifts — it is mainly an ascent</strong> toward your destination.';
+        if (elevationClause) {
+          txt += ' ' + elevationClause;
+        }
+        el.forwardRouteWarning.innerHTML = txt;
+        el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
         el.forwardRouteWarning.classList.remove('hidden');
       } else {
+        el.forwardRouteWarning.innerHTML = '';
         el.forwardRouteWarning.textContent = '';
         el.forwardRouteWarning.classList.add('hidden');
       }
@@ -750,7 +846,7 @@
     const latlngs = polylineLatLngsFromPath(lastForwardPath);
     if (forwardPolyline) map.removeLayer(forwardPolyline);
     forwardPolyline = L.polyline(latlngs, {
-      color: lastForwardIsLiftFallback ? 'cyan' : 'yellow',
+      color: lastForwardLiftReason ? 'cyan' : 'yellow',
       weight: 8,
       opacity: 0.6,
     }).addTo(map);
@@ -831,8 +927,8 @@
     clearActiveNodeHighlight();
     clearRouteLayers();
     clearLists();
-    lastForwardIsLiftFallback = false;
-    setForwardRouteUi(false);
+    lastForwardLiftReason = null;
+    setForwardRouteUi(null);
 
     const skill = el.skill.value;
     const goal = el.goal.value;
@@ -845,23 +941,45 @@
       skill,
       goal
     );
-
+    const physicalSki = routePhysicalSkiConnectivity(adj, startNode, endNode);
+    const liftForward = routeShortest(
+      adj,
+      startNode,
+      endNode,
+      ROUTE_MODE.LIFT_RETURN,
+      skill,
+      goal
+    );
     const ret = routeShortest(adj, endNode, startNode, ROUTE_MODE.LIFT_RETURN, skill, goal);
 
     let primaryForward = skiForward;
-    if (!primaryForward) {
-      const liftForward = routeShortest(
-        adj,
-        startNode,
-        endNode,
-        ROUTE_MODE.LIFT_RETURN,
-        skill,
-        goal
-      );
-      if (liftForward) {
-        primaryForward = liftForward;
-        lastForwardIsLiftFallback = true;
+    let elevClauseHtml = '';
+
+    if (skiForward) {
+      primaryForward = skiForward;
+      lastForwardLiftReason = null;
+    } else if (liftForward) {
+      primaryForward = liftForward;
+      if (physicalSki) {
+        lastForwardLiftReason = 'skill';
+      } else {
+        lastForwardLiftReason = 'uphill';
+        const ps = parseKey(startNode);
+        const pe = parseKey(endNode);
+        const zs = approximateElevationM(ps.lat, ps.lng);
+        const ze = approximateElevationM(pe.lat, pe.lng);
+        if (zs != null && ze != null && zs + 25 < ze) {
+          elevClauseHtml =
+            '<strong>Height hint from nearby OSM survey points:</strong> Start ~' +
+            Math.round(zs) +
+            ' m vs End ~' +
+            Math.round(ze) +
+            ' m — <strong>your Start is lower than your End</strong>, so this route climbs uphill by lifts.';
+        }
       }
+    } else {
+      primaryForward = null;
+      lastForwardLiftReason = null;
     }
 
     lastForwardPath = primaryForward
@@ -870,17 +988,32 @@
     lastReturnPath = ret ? { pathNodes: ret.pathNodes, pathEdges: ret.pathEdges } : null;
 
     activeRouteView = 'forward';
-    setForwardRouteUi(!!lastForwardPath && lastForwardIsLiftFallback);
+    setForwardRouteUi(lastForwardLiftReason, elevClauseHtml);
 
     if (lastForwardPath) {
       el.forwardList.innerHTML = '';
-      if (lastForwardIsLiftFallback) {
+      if (lastForwardLiftReason === 'skill') {
         const msgLi = document.createElement('li');
         msgLi.textContent =
-          'No downhill ski route between your chosen start and end markers. Below is a lifts-only route from Start to End (e.g. heading back uphill toward lodging).';
+          'No downhill ski route matches your skill level and route goal — pistes along reachable paths are too difficult for what you selected. Below is a lifts-only route along Start→End.';
+        msgLi.style.marginBottom = '0.65rem';
+        msgLi.style.padding = '8px 10px';
+        msgLi.style.borderRadius = '6px';
+        msgLi.style.background = 'rgba(127,29,29,.55)';
+        msgLi.style.border = '1px solid rgba(248,113,113,.55)';
+        msgLi.style.color = '#fecaca';
+        msgLi.style.fontWeight = '700';
+        msgLi.style.listStyle = 'none';
+        el.forwardList.appendChild(msgLi);
+        pathToListItems(lastForwardPath, el.forwardList, true);
+      } else if (lastForwardLiftReason === 'uphill') {
+        const msgLi = document.createElement('li');
+        msgLi.textContent =
+          'No downhill ski route along pistes from Start to End (slope directions). Below is lifts-only — mainly uphill toward your destination.';
         msgLi.style.marginBottom = '0.65rem';
         msgLi.style.color = '#fcd34d';
         msgLi.style.fontStyle = 'italic';
+        msgLi.style.fontWeight = '600';
         msgLi.style.listStyle = 'none';
         el.forwardList.appendChild(msgLi);
         pathToListItems(lastForwardPath, el.forwardList, true);
@@ -891,18 +1024,49 @@
       showForwardPolyline();
     } else {
       const li = document.createElement('li');
-      li.textContent =
-        'No route found between these nodes (no ski path and no lift path available).';
+      if (!physicalSki && !liftForward) {
+        li.textContent =
+          'No route found between these markers (no downhill ski graph connection and no lifts-only connection). Try different junctions.';
+      } else if (physicalSki && !liftForward) {
+        li.textContent =
+          'Downhill paths exist for routing geometry but no lifts-only route was found between these markers.';
+      } else {
+        li.textContent = 'No route found between these markers.';
+      }
       el.forwardList.appendChild(li);
     }
 
-    if (lastForwardIsLiftFallback) {
+    el.returnList.innerHTML = '';
+    if (lastForwardLiftReason === 'skill') {
       const note = document.createElement('li');
       note.textContent =
-        'Return Trip is the same lift-only route shown above (no downhill ski path).';
+        'Return Trip: lifts from End back toward Start (shown below when available). Forward above stays lifts-only because your skill settings block pistes.';
+      note.style.marginBottom = '0.5rem';
+      note.style.color = '#bae6fd';
+      note.style.listStyle = 'none';
       el.returnList.appendChild(note);
+      if (lastReturnPath) pathToListItems(lastReturnPath, el.returnList, true);
+      else {
+        const li = document.createElement('li');
+        li.textContent = 'No return route via lifts found.';
+        el.returnList.appendChild(li);
+      }
+    } else if (lastForwardLiftReason === 'uphill') {
+      const note = document.createElement('li');
+      note.textContent =
+        'Return Trip mirrors the usual lifts-back pattern (End→Start). Forward above is lifts-only uphill along your Start→End choice.';
+      note.style.marginBottom = '0.5rem';
+      note.style.color = '#bae6fd';
+      note.style.listStyle = 'none';
+      el.returnList.appendChild(note);
+      if (lastReturnPath) pathToListItems(lastReturnPath, el.returnList, true);
+      else {
+        const li = document.createElement('li');
+        li.textContent = 'No return route via lifts found.';
+        el.returnList.appendChild(li);
+      }
     } else if (lastReturnPath) {
-      pathToListItems(lastReturnPath, el.returnList);
+      pathToListItems(lastReturnPath, el.returnList, false);
     } else {
       const li = document.createElement('li');
       li.textContent = 'No return route via lifts found.';
@@ -920,9 +1084,9 @@
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
-    lastForwardIsLiftFallback = false;
+    lastForwardLiftReason = null;
     activeRouteView = 'forward';
-    setForwardRouteUi(false);
+    setForwardRouteUi(null);
     fitResortBounds();
   }
 
@@ -937,16 +1101,18 @@
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
-    lastForwardIsLiftFallback = false;
+    lastForwardLiftReason = null;
     activeRouteView = 'forward';
-    setForwardRouteUi(false);
+    setForwardRouteUi(null);
     try {
       const elements = await fetchResortData();
+      const lodgingMerge = await mergeLodgingElementsForMap(elements, el.resort.value);
+      rebuildEleSamplesFromElements(lodgingMerge);
       const ways = elements.filter(function (e) {
         return e.type === 'way' && e.geometry && e.geometry.length >= 2;
       });
       rebuildGraph(ways);
-      drawHotelMarkersFromElements(elements);
+      drawHotelMarkersFromElements(lodgingMerge);
       fitResortBounds();
     } catch (err) {
       console.error(err);
