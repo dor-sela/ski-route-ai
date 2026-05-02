@@ -91,27 +91,18 @@
     return x != null ? x : 1;
   }
 
-  const POI_AMENITIES = new Set(['restaurant', 'cafe', 'pub']);
-  const POI_TOURISM = new Set(['hotel', 'alpine_hut']);
+  /** Lodging POIs only (non-routable); restaurants/cafes/pubs excluded. */
+  const HOTEL_TOURISM = new Set(['hotel', 'alpine_hut', 'chalet']);
 
-  function isPoiElement(el) {
+  function isHotelPoi(el) {
     if (el.type !== 'node' || el.lat == null || el.lon == null || !el.tags)
       return false;
-    const am = el.tags.amenity;
     const tu = el.tags.tourism;
-    if (am && POI_AMENITIES.has(am)) return true;
-    if (tu && POI_TOURISM.has(tu)) return true;
-    return false;
+    return tu != null && HOTEL_TOURISM.has(String(tu).toLowerCase());
   }
 
-  function poiTooltipText(tags) {
-    return (
-      tags.name ||
-      tags['name:en'] ||
-      tags['name:bg'] ||
-      [tags.amenity, tags.tourism].filter(Boolean).join(' · ') ||
-      'POI'
-    );
+  function poiHotelName(tags) {
+    return tags.name || tags['name:en'] || tags['name:bg'] || 'Hotel';
   }
 
   /**
@@ -350,6 +341,7 @@
   let activeRouteView = 'forward';
   let lastForwardPath = null;
   let lastReturnPath = null;
+  let lastForwardIsUphillFallback = false;
   /** @type {L.CircleMarker | null} */
   let activeNodeHighlight = null;
 
@@ -405,19 +397,20 @@
   function drawPois(elements) {
     if (!poiLayerGroup) return;
     poiLayerGroup.clearLayers();
-    const starIcon = L.divIcon({
-      className: 'ski-poi-marker',
-      html: '<span class="ski-poi-star" aria-hidden="true">★</span>',
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
+    const hotelIcon = L.divIcon({
+      className: 'ski-hotel-marker',
+      html:
+        '<div class="ski-hotel-square" aria-hidden="true"><span class="ski-hotel-bed">🛏</span></div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
     });
-    elements.filter(isPoiElement).forEach(function (n) {
+    elements.filter(isHotelPoi).forEach(function (n) {
       const latlng = [n.lat, n.lon];
       const marker = L.marker(latlng, {
-        icon: starIcon,
+        icon: hotelIcon,
         interactive: true,
       });
-      marker.bindTooltip(poiTooltipText(n.tags), {
+      marker.bindTooltip(poiHotelName(n.tags), {
         direction: 'top',
         opacity: 0.95,
       });
@@ -427,28 +420,48 @@
 
   function setForwardRouteUi(isUphillLiftRoute) {
     if (!el.forwardHeaderTitle || !el.forwardRouteWarning) return;
+    if (el.forwardHeader)
+      el.forwardHeader.classList.toggle(
+        'forward-header-uphill',
+        !!isUphillLiftRoute
+      );
     if (isUphillLiftRoute) {
       el.forwardHeaderTitle.textContent =
-        '🎿 Uphill / Lift-Only Route';
+        '🚠 Uphill / Lift-Only Route';
       el.forwardRouteWarning.textContent =
-        'Note: Downhill skiing is not possible between these points. This route primarily uses lifts to ascend the mountain.';
+        'No downhill ski route is possible between these points. Displaying the lift-based route to ascend the mountain.';
       el.forwardRouteWarning.classList.remove('hidden');
+      el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
     } else {
       el.forwardHeaderTitle.textContent = 'Forward Route';
       el.forwardRouteWarning.textContent = '';
       el.forwardRouteWarning.classList.add('hidden');
+      el.forwardRouteWarning.classList.remove('forward-route-warning--uphill');
     }
   }
 
-  function forwardPathIsLiftDominant(pathEdges) {
-    let lifts = 0;
-    let downhill = 0;
-    pathEdges.forEach(function (e) {
-      if (e.isLift) lifts++;
-      else downhill++;
+  /** True iff start→end has any path using only downhill pistes (no lifts). */
+  function hasPisteOnlyPath(adj, start, end) {
+    const result = dijkstra(adj, start, end, function (edge) {
+      if (edge.isLift) return Infinity;
+      return edge.lengthM;
     });
-    if (downhill === 0 && lifts > 0) return true;
-    if (downhill > 0 && lifts >= downhill * 2) return true;
+    return result !== null;
+  }
+
+  function pathIsAllLifts(pathEdges) {
+    if (!pathEdges || pathEdges.length === 0) return false;
+    return pathEdges.every(function (e) {
+      return e.isLift;
+    });
+  }
+
+  /**
+   * Uphill fallback: chosen route is lift-only, OR pistes alone cannot connect start/end.
+   */
+  function shouldUseUphillFallback(pathEdges, adj, start, end) {
+    if (pathIsAllLifts(pathEdges)) return true;
+    if (!hasPisteOnlyPath(adj, start, end)) return true;
     return false;
   }
 
@@ -684,8 +697,9 @@
     }
     const latlngs = polylineLatLngsFromRoute(lastForwardPath);
     if (forwardPolyline) map.removeLayer(forwardPolyline);
+    const lineColor = lastForwardIsUphillFallback ? 'cyan' : 'yellow';
     forwardPolyline = L.polyline(latlngs, {
-      color: 'yellow',
+      color: lineColor,
       weight: 8,
       opacity: 0.6,
     }).addTo(map);
@@ -776,19 +790,26 @@
     if (!forward) {
       lastForwardPath = null;
       lastReturnPath = null;
+      lastForwardIsUphillFallback = false;
       setForwardRouteUi(false);
       alert('No forward route found between the selected nodes.');
       return;
     }
     lastForwardPath = forward;
 
+    lastForwardIsUphillFallback = shouldUseUphillFallback(
+      forward.pathEdges,
+      adj,
+      startNode,
+      endNode
+    );
+
     const backward = dijkstra(adj, endNode, startNode, returnEdgeWeight);
     lastReturnPath = backward;
 
     activeRouteView = 'forward';
+    setForwardRouteUi(lastForwardIsUphillFallback);
     showForwardPolyline();
-
-    setForwardRouteUi(forwardPathIsLiftDominant(forward.pathEdges));
 
     pathToListItems(forward, el.forwardList);
     bindForwardListFlyTo();
@@ -813,6 +834,7 @@
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
+    lastForwardIsUphillFallback = false;
     activeRouteView = 'forward';
     setForwardRouteUi(false);
     fitResortBounds();
@@ -828,6 +850,7 @@
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
+    lastForwardIsUphillFallback = false;
     setForwardRouteUi(false);
     try {
       const elements = await fetchResortData();
