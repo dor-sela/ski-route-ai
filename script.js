@@ -165,12 +165,6 @@
     return bestZ;
   }
 
-  /** When OSM ele is missing: coarse hint for Val Thorens (summits generally ~north of village strip). */
-  function latProxyEndHigherLikely(ps, pe, resortKey) {
-    if (resortKey !== 'val-thorens') return false;
-    return pe.lat > ps.lat + 0.00032;
-  }
-
   function pathUsesOnlyLifts(pathObj) {
     const edges = pathObj && pathObj.pathEdges;
     if (!edges || !edges.length) return false;
@@ -582,7 +576,12 @@
       'background:rgba(251,191,36,.22);border:2px solid rgba(251,191,36,.75);' +
       'color:#fffbeb;font-weight:700;line-height:1.45;}' +
       '@keyframes ski-ascent-pop{0%{transform:scale(.96);opacity:.75;}35%{transform:scale(1.01);opacity:1;}100%{transform:scale(1);opacity:1;}}' +
-      '.ski-forward-mirror-note--pop{animation:ski-ascent-pop .6s ease-out 1;}';
+      '.ski-forward-mirror-note--pop{animation:ski-ascent-pop .6s ease-out 1;}' +
+      '.ski-warning-tier-primary{margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.18);}' +
+      '.ski-warning-tier-primary p{margin:0;line-height:1.45;}' +
+      '.ski-warning-tier-secondary{margin-top:2px;}' +
+      '.ski-warning-tier-secondary .ski-route-layout-kicker{display:block;margin:0 0 6px;font-size:11px;font-weight:700;' +
+      'letter-spacing:.03em;text-transform:uppercase;opacity:.88;}';
     document.head.appendChild(st);
   }
 
@@ -641,36 +640,39 @@
     });
   }
 
-  /**
-   * Compact lifts-heavy strip — outbound lifts-first; optional for skill when geography matches.
-   */
+  /** Route-shape details (lifts-heavy, corridor, elevation) — shown after skill / headline notices. */
   function buildAscentPopHtml(ctx) {
     const bits = [];
     bits.push(
-      '📍 This segment relies <strong>mostly on lifts</strong> toward your End.'
+      '📍 <strong>Composition:</strong> this outbound path is <strong>mostly lifts</strong> toward your End.'
     );
-    if (ctx.mirrorLiftCorridor) {
-      bits.push('<strong>Same lift corridor</strong> outbound and back.');
-    }
     if (ctx.liftOnlyForward) {
       bits.push('<strong>Lift-only</strong> sequence — no pistes on this leg.');
     }
+    if (ctx.mirrorLiftCorridor) {
+      bits.push('<strong>Same lift corridor</strong> outbound and back.');
+    }
     if (ctx.elevAscentKnow && ctx.elevClauseHtml) {
       bits.push(ctx.elevClauseHtml);
-    } else if (ctx.latProxyAscent && ctx.latProxyClauseHtml) {
-      bits.push(ctx.latProxyClauseHtml);
     }
     return '<div class="ski-forward-mirror-note ski-forward-mirror-note--pop">' + bits.join(' ') + '</div>';
+  }
+
+  function wrapRouteStructureBlock(innerHtml) {
+    return (
+      '<div class="ski-warning-tier-secondary">' +
+      '<span class="ski-route-layout-kicker">Route layout</span>' +
+      innerHtml +
+      '</div>'
+    );
   }
 
   function setForwardRouteUi(liftReason, ctx) {
     ctx = ctx || {};
     const mirrorLiftCorridor = !!ctx.mirrorLiftCorridor;
     const elevClauseHtml = ctx.elevClauseHtml || '';
-    const latProxyClauseHtml = ctx.latProxyClauseHtml || '';
     const liftOnlyForward = !!ctx.liftOnlyForward;
     const elevAscentKnow = !!ctx.elevAscentKnow;
-    const latProxyAscent = !!ctx.latProxyAscent;
 
     const skill = liftReason === 'skill';
     const uphill = liftReason === 'uphill';
@@ -681,7 +683,7 @@
 
     if (el.forwardHeaderTitle) {
       if (skill) {
-        el.forwardHeaderTitle.textContent = '🚠 Lifts — above your settings';
+        el.forwardHeaderTitle.textContent = '🚠 Lifts — above your ability';
       } else if (uphill) {
         el.forwardHeaderTitle.textContent = '🚠 Mostly lifts';
       } else {
@@ -696,20 +698,17 @@
       const ascentCtx = {
         mirrorLiftCorridor: mirrorLiftCorridor,
         elevClauseHtml: elevClauseHtml,
-        latProxyClauseHtml: latProxyClauseHtml,
         liftOnlyForward: liftOnlyForward,
         elevAscentKnow: elevAscentKnow,
-        latProxyAscent: latProxyAscent,
       };
 
       if (skill) {
-        let txt =
-          '<strong>Note:</strong> No downhill ski route matches your skill level or route goal. Showing the <strong>lift-based route</strong>.';
-        const showAscentStrip =
-          mirrorLiftCorridor || elevAscentKnow || latProxyAscent || liftOnlyForward;
-        if (showAscentStrip) {
-          txt += buildAscentPopHtml(ascentCtx);
-        }
+        const skillBody =
+          '<p><strong>Note (skill):</strong> No downhill ski route matches your skill level or route goal. Showing the <strong>lift-based route</strong>.</p>';
+        const showAscentStrip = mirrorLiftCorridor || elevAscentKnow || liftOnlyForward;
+        const txt = showAscentStrip
+          ? '<div class="ski-warning-tier-primary">' + skillBody + '</div>' + wrapRouteStructureBlock(buildAscentPopHtml(ascentCtx))
+          : skillBody;
         el.forwardRouteWarning.innerHTML = txt;
         el.forwardRouteWarning.classList.add('forward-route-warning--skill');
         el.forwardRouteWarning.classList.remove('hidden');
@@ -717,8 +716,10 @@
         scrollForwardNoticeIntoView();
       } else if (uphill) {
         let txt =
-          '<strong>Note:</strong> Downhill ski route unavailable. Displaying the lift-based route to ascend. ';
-        txt += buildAscentPopHtml(ascentCtx);
+          '<div class="ski-warning-tier-primary">' +
+          '<p><strong>Note (no downhill path):</strong> Downhill ski route unavailable between these points. Displaying the lift-based route to ascend.</p>' +
+          '</div>';
+        txt += wrapRouteStructureBlock(buildAscentPopHtml(ascentCtx));
         el.forwardRouteWarning.innerHTML = txt;
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
         el.forwardRouteWarning.classList.remove('hidden');
@@ -1066,8 +1067,6 @@
     let primaryForward = skiForward;
     let elevClauseHtml = '';
     let elevAscentKnow = false;
-    let latProxyAscent = false;
-    let latProxyClauseHtml = '';
 
     if (skiForward) {
       primaryForward = skiForward;
@@ -1097,10 +1096,6 @@
           ' m, End ~' +
           Math.round(ze) +
           ' m — ascent is mainly by lifts.';
-      } else if (latProxyEndHigherLikely(ps, pe, el.resort.value)) {
-        latProxyAscent = true;
-        latProxyClauseHtml =
-          '<strong>Map hint:</strong> End lies north of Start in this resort — lifts are likely needed.';
       }
     }
 
@@ -1120,10 +1115,8 @@
     setForwardRouteUi(lastForwardLiftReason, {
       mirrorLiftCorridor: mirrorLiftCorridor,
       elevClauseHtml: elevClauseHtml,
-      latProxyClauseHtml: latProxyClauseHtml,
       liftOnlyForward: liftOnlyForward,
       elevAscentKnow: elevAscentKnow,
-      latProxyAscent: latProxyAscent,
     });
 
     if (lastForwardPath) {
