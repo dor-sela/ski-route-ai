@@ -518,7 +518,7 @@
   let lastForwardPath = null;
   /** @type {{ pathNodes: string[], pathEdges: object[] } | null} */
   let lastReturnPath = null;
-  /** null | 'skill' | 'uphill' — primary forward poly uses lifts-only cyan when non-null */
+  /** null | 'skill' | 'uphill' — forward poly uses alternate highlight color when non-null */
   let lastForwardLiftReason = null;
   /** @type {L.CircleMarker | null} */
   let activeNodeHighlight = null;
@@ -577,9 +577,7 @@
       'background:rgba(251,191,36,.22);border:2px solid rgba(251,191,36,.75);' +
       'color:#fffbeb;font-weight:700;line-height:1.45;}' +
       '@keyframes ski-ascent-pop{0%{transform:scale(.96);opacity:.75;}35%{transform:scale(1.01);opacity:1;}100%{transform:scale(1);opacity:1;}}' +
-      '.ski-forward-mirror-note--pop{animation:ski-ascent-pop .6s ease-out 1;}' +
-      '.ski-mirror-he-note{margin:0 0 10px;font-weight:700;line-height:1.55;color:#fffbeb;' +
-      'border-right:4px solid #fbbf24;padding:8px 12px 8px 0;background:rgba(251,191,36,.12);border-radius:6px;}';
+      '.ski-forward-mirror-note--pop{animation:ski-ascent-pop .6s ease-out 1;}';
     document.head.appendChild(st);
   }
 
@@ -601,14 +599,14 @@
     });
   }
 
-  /** POI markers from JSON (purple ★); tooltip = name or “POI”. */
+  /** POI markers from JSON (muted gold ★); tooltip = name or “POI”. */
   function drawHotelMarkersFromElements(elements) {
     if (!hotelsLayerGroup) return;
     hotelsLayerGroup.clearLayers();
 
     const starIcon = L.divIcon({
       className: 'ski-hotel-star-wrap',
-      html: '<span style="color:#9333ea;">★</span>',
+      html: '<span style="color:#c4a035;">★</span>',
       iconSize: [18, 18],
       iconAnchor: [9, 9],
     });
@@ -638,14 +636,6 @@
     });
   }
 
-  function mirrorAscentHebrewHtml() {
-    return (
-      '<p dir="rtl" class="ski-mirror-he-note">' +
-      'שימו לב: הלוך וחזר על אותה מסילת משקעות (כיוונים הפוכים); ההלוך בעיקר עלייה במשקעות.' +
-      '</p>'
-    );
-  }
-
   /**
    * Compact lifts-heavy strip — outbound lifts-first; optional for skill when geography matches.
    */
@@ -669,7 +659,6 @@
   function setForwardRouteUi(liftReason, ctx) {
     ctx = ctx || {};
     const mirrorLiftCorridor = !!ctx.mirrorLiftCorridor;
-    const heMirror = mirrorLiftCorridor ? mirrorAscentHebrewHtml() : '';
     const elevClauseHtml = ctx.elevClauseHtml || '';
     const latProxyClauseHtml = ctx.latProxyClauseHtml || '';
     const liftOnlyForward = !!ctx.liftOnlyForward;
@@ -708,8 +697,7 @@
 
       if (skill) {
         let txt =
-          heMirror +
-          '<strong>Pistes Start→End exceed your skill / route goal.</strong> Showing <strong>lifts-only</strong> (cyan).';
+          '<strong>Pistes Start→End exceed your skill / route goal.</strong> Showing <strong>lifts-only</strong>.';
         const showAscentStrip =
           mirrorLiftCorridor || elevAscentKnow || latProxyAscent || liftOnlyForward;
         if (showAscentStrip) {
@@ -721,8 +709,7 @@
         el.forwardRouteWarning.style.display = 'block';
         scrollForwardNoticeIntoView();
       } else if (uphill) {
-        let txt =
-          heMirror + '<strong>Lifts-heavy route Start→End</strong> (cyan). ';
+        let txt = '<strong>Lifts-heavy route Start→End.</strong> ';
         txt += buildAscentPopHtml(ascentCtx);
         el.forwardRouteWarning.innerHTML = txt;
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
@@ -731,7 +718,6 @@
         scrollForwardNoticeIntoView();
       } else if (mirrorLiftCorridor) {
         el.forwardRouteWarning.innerHTML =
-          heMirror +
           '<p style="margin:0;line-height:1.45;color:#e0f2fe;font-size:.95rem;">Return: same lifts reversed (max lifts).</p>';
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
         el.forwardRouteWarning.classList.remove('hidden');
