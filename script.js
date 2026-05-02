@@ -599,14 +599,14 @@
     });
   }
 
-  /** POI markers from JSON (muted gold ★); tooltip = name or “POI”. */
+  /** POI markers from JSON (goldenrod ★); tooltip = name or “POI”. */
   function drawHotelMarkersFromElements(elements) {
     if (!hotelsLayerGroup) return;
     hotelsLayerGroup.clearLayers();
 
     const starIcon = L.divIcon({
       className: 'ski-hotel-star-wrap',
-      html: '<span style="color:#c4a035;">★</span>',
+      html: '<span style="color:#DAA520;">★</span>',
       iconSize: [18, 18],
       iconAnchor: [9, 9],
     });
@@ -641,12 +641,14 @@
    */
   function buildAscentPopHtml(ctx) {
     const bits = [];
-    bits.push('📍 <strong>Mostly lifts</strong> toward your End.');
+    bits.push(
+      '📍 This segment relies <strong>mostly on lifts</strong> toward your End.'
+    );
     if (ctx.mirrorLiftCorridor) {
-      bits.push('<strong>Same lift corridor</strong> there &amp; back.');
+      bits.push('<strong>Same lift corridor</strong> outbound and back.');
     }
     if (ctx.liftOnlyForward) {
-      bits.push('<strong>Lift-only</strong> leg — no pistes here.');
+      bits.push('<strong>Lift-only</strong> sequence — no pistes on this leg.');
     }
     if (ctx.elevAscentKnow && ctx.elevClauseHtml) {
       bits.push(ctx.elevClauseHtml);
@@ -697,7 +699,7 @@
 
       if (skill) {
         let txt =
-          '<strong>Pistes Start→End exceed your skill / route goal.</strong> Showing <strong>lifts-only</strong>.';
+          '<strong>Note:</strong> No downhill ski route matches your skill level or route goal. Showing the <strong>lift-based route</strong>.';
         const showAscentStrip =
           mirrorLiftCorridor || elevAscentKnow || latProxyAscent || liftOnlyForward;
         if (showAscentStrip) {
@@ -709,7 +711,8 @@
         el.forwardRouteWarning.style.display = 'block';
         scrollForwardNoticeIntoView();
       } else if (uphill) {
-        let txt = '<strong>Lifts-heavy route Start→End.</strong> ';
+        let txt =
+          '<strong>Note:</strong> Downhill ski route unavailable. Displaying the lift-based route to ascend. ';
         txt += buildAscentPopHtml(ascentCtx);
         el.forwardRouteWarning.innerHTML = txt;
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
@@ -718,7 +721,7 @@
         scrollForwardNoticeIntoView();
       } else if (mirrorLiftCorridor) {
         el.forwardRouteWarning.innerHTML =
-          '<p style="margin:0;line-height:1.45;color:#e0f2fe;font-size:.95rem;">Return: same lifts reversed (max lifts).</p>';
+          '<p style="margin:0;line-height:1.45;color:#e0f2fe;font-size:.95rem;"><strong>Note:</strong> Return follows the same lift lines in reverse (maximum lifts where the graph allows).</p>';
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
         el.forwardRouteWarning.classList.remove('hidden');
         el.forwardRouteWarning.style.display = 'block';
@@ -1084,15 +1087,15 @@
       if (zs != null && ze != null && zs + 25 < ze) {
         elevAscentKnow = true;
         elevClauseHtml =
-          '<strong>Height hint:</strong> Start ~' +
+          '<strong>Elevation hint:</strong> Start ~' +
           Math.round(zs) +
           ' m, End ~' +
           Math.round(ze) +
-          ' m — mostly uphill by lifts.';
+          ' m — ascent is mainly by lifts.';
       } else if (latProxyEndHigherLikely(ps, pe, el.resort.value)) {
         latProxyAscent = true;
         latProxyClauseHtml =
-          '<strong>Map hint:</strong> End north of Start (VT) — expect lifts.';
+          '<strong>Map hint:</strong> End lies north of Start in this resort — lifts are likely needed.';
       }
     }
 
@@ -1140,7 +1143,8 @@
     el.returnList.innerHTML = '';
     if (lastForwardLiftReason === 'skill') {
       const note = document.createElement('li');
-      note.textContent = 'Return — lifts End→Start (see banner).';
+      note.textContent =
+        'Return: lifts End→Start (details in the notice above).';
       note.style.marginBottom = '0.35rem';
       note.style.color = '#bae6fd';
       note.style.listStyle = 'none';
@@ -1154,7 +1158,9 @@
     } else if (lastForwardLiftReason === 'uphill') {
       const note = document.createElement('li');
       note.textContent =
-        mirrorLiftCorridor ? 'Return — same lifts reversed (see banner).' : 'Return — lifts End→Start.';
+        mirrorLiftCorridor
+          ? 'Return: same lifts reversed (see notice above).'
+          : 'Return: lifts End→Start.';
       note.style.marginBottom = '0.35rem';
       note.style.color = '#bae6fd';
       note.style.listStyle = 'none';
