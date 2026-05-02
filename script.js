@@ -429,7 +429,7 @@
       el.forwardHeaderTitle.textContent =
         '🚠 Uphill / Lift-Only Route';
       el.forwardRouteWarning.textContent =
-        'No downhill ski route is possible between these points. Displaying the lift-based route to ascend the mountain.';
+        'No downhill route available. Displaying the lift-based route to ascend to your destination.';
       el.forwardRouteWarning.classList.remove('hidden');
       el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
     } else {
@@ -440,29 +440,11 @@
     }
   }
 
-  /** True iff start→end has any path using only downhill pistes (no lifts). */
-  function hasPisteOnlyPath(adj, start, end) {
-    const result = dijkstra(adj, start, end, function (edge) {
-      if (edge.isLift) return Infinity;
-      return edge.lengthM;
-    });
-    return result !== null;
-  }
-
   function pathIsAllLifts(pathEdges) {
     if (!pathEdges || pathEdges.length === 0) return false;
     return pathEdges.every(function (e) {
       return e.isLift;
     });
-  }
-
-  /**
-   * Uphill fallback: chosen route is lift-only, OR pistes alone cannot connect start/end.
-   */
-  function shouldUseUphillFallback(pathEdges, adj, start, end) {
-    if (pathIsAllLifts(pathEdges)) return true;
-    if (!hasPisteOnlyPath(adj, start, end)) return true;
-    return false;
   }
 
   function initMap() {
@@ -787,31 +769,35 @@
     const forward = dijkstra(adj, startNode, endNode, (edge) =>
       forwardEdgeWeight(edge, skill, goal)
     );
-    if (!forward) {
-      lastForwardPath = null;
-      lastReturnPath = null;
-      lastForwardIsUphillFallback = false;
-      setForwardRouteUi(false);
-      alert('No forward route found between the selected nodes.');
-      return;
-    }
-    lastForwardPath = forward;
 
-    lastForwardIsUphillFallback = shouldUseUphillFallback(
-      forward.pathEdges,
-      adj,
-      startNode,
-      endNode
-    );
+    let primaryPath = forward;
+    let useUphillFallback = false;
+
+    if (!forward || pathIsAllLifts(forward.pathEdges)) {
+      const uphill = dijkstra(adj, startNode, endNode, returnEdgeWeight);
+      if (!uphill) {
+        lastForwardPath = null;
+        lastReturnPath = null;
+        lastForwardIsUphillFallback = false;
+        setForwardRouteUi(false);
+        alert('No route found between these nodes.');
+        return;
+      }
+      primaryPath = uphill;
+      useUphillFallback = true;
+    }
+
+    lastForwardPath = primaryPath;
+    lastForwardIsUphillFallback = useUphillFallback;
 
     const backward = dijkstra(adj, endNode, startNode, returnEdgeWeight);
     lastReturnPath = backward;
 
     activeRouteView = 'forward';
-    setForwardRouteUi(lastForwardIsUphillFallback);
+    setForwardRouteUi(useUphillFallback);
     showForwardPolyline();
 
-    pathToListItems(forward, el.forwardList);
+    pathToListItems(primaryPath, el.forwardList);
     bindForwardListFlyTo();
 
     if (backward) {
