@@ -16,14 +16,28 @@
   /** Mode 1: ski-first routing (penalize lifts vs pistes). Mode 2: lift ascent (“return trip” weights). */
   const ROUTE_MODE = { SKI_FORWARD: 'ski', LIFT_ASCENT: 'lift' };
 
-  const HOTEL_TOURISM_VALUES = ['hotel', 'alpine_hut', 'chalet'];
+  const HOTEL_TOURISM_VALUES = [
+    'hotel',
+    'alpine_hut',
+    'chalet',
+    'guest_house',
+    'hostel',
+    'motel',
+  ];
 
   function isHotelNode(element) {
     if (!element || element.type !== 'node' || !element.tags) return false;
-    const t = element.tags.tourism;
-    if (t == null || String(t).trim() === '') return false;
-    const norm = String(t).toLowerCase();
-    return HOTEL_TOURISM_VALUES.indexOf(norm) !== -1;
+    const tags = element.tags;
+    const t = tags.tourism;
+    if (t != null && String(t).trim() !== '') {
+      const norm = String(t).toLowerCase();
+      if (HOTEL_TOURISM_VALUES.indexOf(norm) !== -1) return true;
+    }
+    const amenity = tags.amenity != null ? String(tags.amenity).toLowerCase() : '';
+    if (amenity === 'hotel' || amenity === 'hostel' || amenity === 'motel') return true;
+    const building = tags.building != null ? String(tags.building).toLowerCase() : '';
+    if (building === 'hotel' && tags.name != null && String(tags.name).trim() !== '') return true;
+    return false;
   }
 
   function hotelDisplayName(tags) {
@@ -318,6 +332,16 @@
     return false;
   }
 
+  /** Geo order of B→A lift-favoring path flipped to Start→End for list and main polyline. */
+  function reverseRoutePath(result) {
+    if (!result || !result.pathNodes || result.pathNodes.length < 2) return result;
+    return {
+      pathNodes: result.pathNodes.slice().reverse(),
+      pathEdges: (result.pathEdges || []).slice().reverse(),
+      totalCost: result.totalCost,
+    };
+  }
+
   function routePolylineFromPath(pathNodes, pathEdges) {
     const pts = [];
     function samePt(a, b) {
@@ -418,7 +442,7 @@
   }
 
   /**
-   * CRITICAL: parse elements[] — node + tags.tourism in { hotel, alpine_hut, chalet }.
+   * CRITICAL: parse full `elements[]` from resort JSON — meaningful lodging POIs on the map.
    */
   function drawHotelPoisFromElements(elements) {
     if (!poiLayerGroup || !elements || !elements.length) {
@@ -453,6 +477,7 @@
         offset: [0, -10],
       });
       marker.addTo(poiLayerGroup);
+      if (typeof marker.bringToFront === 'function') marker.bringToFront();
     }
   }
 
@@ -464,7 +489,7 @@
     if (isUphill) {
       el.forwardHeaderTitle.textContent = '🚠 Uphill / Lift-Only Route';
       el.forwardRouteWarning.textContent =
-        'Note: No downhill ski route available. Displaying the lift-based return trip to ascend to your destination.';
+        'No ski route from Start to End. Using lift-favoring search from End toward Start only; the path is shown reversed (Start → End).';
       el.forwardRouteWarning.classList.remove('hidden');
       el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
     } else {
@@ -496,8 +521,8 @@
     slopesLayer.addTo(map);
 
     waysLayerGroup = L.layerGroup().addTo(map);
-    poiLayerGroup = L.layerGroup().addTo(map);
     nodesLayerGroup = L.layerGroup().addTo(map);
+    poiLayerGroup = L.layerGroup().addTo(map);
     selectionLabelsLayer = L.layerGroup().addTo(map);
 
     map.on('zoomend', applyGraphNodeRadiiFromZoom);
@@ -793,17 +818,18 @@
 
     let primary = mode1;
     let uphill = false;
+    let liftFallbackOnly = false;
 
     if (mode1Failed(startNode, endNode, mode1)) {
-      const mode2Path = dijkstraRouted(
+      const rawReturn = dijkstraRouted(
         adj,
-        startNode,
         endNode,
+        startNode,
         ROUTE_MODE.LIFT_ASCENT,
         skill,
         goal
       );
-      if (mode1Failed(startNode, endNode, mode2Path)) {
+      if (mode1Failed(endNode, startNode, rawReturn)) {
         lastForwardPath = null;
         lastReturnPath = null;
         lastForwardIsUphillFallback = false;
@@ -811,8 +837,9 @@
         alert('No route found between these nodes.');
         return;
       }
-      primary = mode2Path;
+      primary = reverseRoutePath(rawReturn);
       uphill = true;
+      liftFallbackOnly = true;
     }
 
     lastForwardPath = {
@@ -821,17 +848,18 @@
     };
     lastForwardIsUphillFallback = uphill;
 
-    const back = dijkstraRouted(
-      adj,
-      endNode,
-      startNode,
-      ROUTE_MODE.LIFT_ASCENT,
-      skill,
-      goal
-    );
-    lastReturnPath = back
-      ? { pathNodes: back.pathNodes, pathEdges: back.pathEdges }
-      : null;
+    let back = null;
+    if (!liftFallbackOnly) {
+      back = dijkstraRouted(
+        adj,
+        endNode,
+        startNode,
+        ROUTE_MODE.LIFT_ASCENT,
+        skill,
+        goal
+      );
+    }
+    lastReturnPath = back ? { pathNodes: back.pathNodes, pathEdges: back.pathEdges } : null;
 
     activeRouteView = 'forward';
     setForwardRouteUi(uphill);
@@ -840,7 +868,13 @@
     pathToListItems(lastForwardPath, el.forwardList);
     bindForwardListFlyTo();
 
-    if (lastReturnPath) {
+    if (liftFallbackOnly) {
+      el.returnList.innerHTML = '';
+      const li = document.createElement('li');
+      li.textContent =
+        'Lift fallback: only End→Start was computed. The main route above is that path, shown from Start to End.';
+      el.returnList.appendChild(li);
+    } else if (lastReturnPath) {
       pathToListItems(lastReturnPath, el.returnList);
     } else {
       el.returnList.innerHTML = '';
