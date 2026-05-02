@@ -2,10 +2,669 @@
   "version": 0.6,
   "generator": "Overpass API 0.7.62.11 87bfad18",
   "osm3s": {
-    "timestamp_osm_base": "2026-04-05T10:48:28Z",
+    "timestamp_osm_base": "2026-05-02T08:28:23Z",
     "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
   },
   "elements": [
+    {
+      "type": "node",
+      "id": 440263878,
+      "lat": 45.2862246,
+      "lon": 6.5841952,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Chalet du Thorens"
+      }
+    },
+    {
+      "type": "node",
+      "id": 602473753,
+      "lat": 45.3188073,
+      "lon": 6.5793844,
+      "tags": {
+        "amenity": "restaurant"
+      }
+    },
+    {
+      "type": "node",
+      "id": 614909579,
+      "lat": 45.2942676,
+      "lon": 6.5522417,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Chalet des 2 Ours"
+      }
+    },
+    {
+      "type": "node",
+      "id": 616733395,
+      "lat": 45.310226,
+      "lon": 6.5685735,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "L'Alpage"
+      }
+    },
+    {
+      "type": "node",
+      "id": 676312718,
+      "lat": 45.2962459,
+      "lon": 6.578683,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Jasper",
+        "wheelchair": "limited"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1177611676,
+      "lat": 45.2948929,
+      "lon": 6.5852273,
+      "tags": {
+        "addr:street": "Place du Slalom",
+        "name": "Alberta",
+        "phone": "+33 4 79 09 26 56",
+        "stars": "3",
+        "tourism": "hotel",
+        "website": "https://alberta-hotel.fr/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2096804657,
+      "lat": 45.2976863,
+      "lon": 6.5849785,
+      "tags": {
+        "addr:city": "Val Thorens",
+        "addr:street": "Rue de Gebroulaz",
+        "amenity": "pub",
+        "name": "The Frog and Roastbeef",
+        "note": "Claims to be the highest pub in Europe",
+        "website": "https://www.thefrogvt.com/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2096804667,
+      "lat": 45.2980085,
+      "lon": 6.5808878,
+      "tags": {
+        "amenity": "restaurant",
+        "check_date": "2025-03-03",
+        "cuisine": "french",
+        "level": "2",
+        "name": "Le Rooftop"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2096804688,
+      "lat": 45.2968712,
+      "lon": 6.5838788,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "american",
+        "name": "John's",
+        "opening_hours": "Su-Fr,PH 18:00-23:00; Sa 12:00-23:00",
+        "ref:FR:SIRET": "42874954300016"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2409172445,
+      "lat": 45.2982419,
+      "lon": 6.5795286,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "italian",
+        "name": "L'Alti"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2419279705,
+      "lat": 45.2987036,
+      "lon": 6.5765018,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Beef & Lobster",
+        "website": "https://www.beef-and-lobster.com/",
+        "website:menu": "https://www.montagnettes.com/contenu/documents/carte-beef-lobster.pdf"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2419309090,
+      "lat": 45.2967181,
+      "lon": 6.5813879,
+      "tags": {
+        "addr:city": "Val Thorens",
+        "addr:postcode": "73440",
+        "addr:street": "Rue du Soleil",
+        "amenity": "pub",
+        "check_date": "2026-01-20",
+        "description": "Irish Pub",
+        "name": "The Shamrock",
+        "opening_hours": "Mo-Su 16:00-02:00",
+        "phone": "+33 4 79 00 03 53",
+        "website": "http://www.shamrock-pub-valthorens.com"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2419321177,
+      "lat": 45.2966442,
+      "lon": 6.5801317,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "regional",
+        "diet:vegan": "no",
+        "diet:vegetarian": "yes",
+        "name": "Chez Augustine",
+        "opening_hours": "Mo-Su,PH 18:00-23:30",
+        "phone": "+33 4 79 00 03 88",
+        "smoking": "no",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2419321178,
+      "lat": 45.2966519,
+      "lon": 6.5800726,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "pizza;Italian;regional",
+        "diet:vegan": "no",
+        "diet:vegetarian": "yes",
+        "email": "contact@restoleil.com",
+        "name": "La P'tite Ferme",
+        "opening_hours": "Su-Fr 12:00-12:00,18:30-23:00; Sa 12:00-12:00,18:30-23:00+",
+        "phone": "+33 4 79 00 05 12",
+        "smoking": "no",
+        "website": "https://www.grouperestoleil.com/restaurants/restaurant-la-ptite-ferme-val-thorens/",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2419327336,
+      "lat": 45.296569,
+      "lon": 6.5793541,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "regional;french",
+        "email": "chrispag@wanadoo.fr",
+        "name": "Le Vieux Chalet",
+        "phone": "+33 4 79 00 07 93",
+        "website": "https://levieuxchalet.com/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4634925414,
+      "lat": 45.2987216,
+      "lon": 6.5826386,
+      "tags": {
+        "amenity": "bar",
+        "name": "La Sabot de Vénus"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4634925417,
+      "lat": 45.2997056,
+      "lon": 6.5797259,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "L'Auberge des Balcons"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4634925421,
+      "lat": 45.2987226,
+      "lon": 6.5825726,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Le Dandy"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4634925424,
+      "lat": 45.2982202,
+      "lon": 6.5819693,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "La Face"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4636900008,
+      "lat": 45.3000527,
+      "lon": 6.5799322,
+      "tags": {
+        "amenity": "restaurant",
+        "contact:website": "http://www.lafermederosalie.fr/",
+        "name": "La Ferme de Rosalie",
+        "ref:FR:SIRET": "84033718200017"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4636937253,
+      "lat": 45.3000083,
+      "lon": 6.5786248,
+      "tags": {
+        "amenity": "restaurant",
+        "contact:website": "https://www.les-balcons.com/sur-place/les-balcons-de-val-thorens/la-cabane.html",
+        "name": "La Cabane"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5436807278,
+      "lat": 45.2953284,
+      "lon": 6.5873515,
+      "tags": {
+        "amenity": "restaurant",
+        "outdoor_seating": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6254619052,
+      "lat": 45.2977825,
+      "lon": 6.576847,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "italian",
+        "name": "Il Gusto"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6254620791,
+      "lat": 45.2967538,
+      "lon": 6.5768742,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Rockey Mountain"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6254621512,
+      "lat": 45.2980624,
+      "lon": 6.5799611,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "NEVA"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6259532042,
+      "lat": 45.2982042,
+      "lon": 6.5817515,
+      "tags": {
+        "air_conditioning": "no",
+        "amenity": "restaurant",
+        "name": "Le Coq",
+        "opening_hours": "Mo-Su,PH 12:00-01:00",
+        "ref:FR:SIRET": "44004981500010",
+        "smoking": "outside"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6259536574,
+      "lat": 45.2979167,
+      "lon": 6.5813199,
+      "tags": {
+        "addr:city": "Val Thorens",
+        "addr:postcode": "73440",
+        "addr:street": "Rue de Caron",
+        "amenity": "restaurant",
+        "email": "contact@la-maison-valthorens.fr",
+        "level": "2",
+        "name": "La Maison",
+        "phone": "+33479000048",
+        "reservation": "yes",
+        "website": "https://la-maison-valthorens.fr/",
+        "wheelchair": "limited"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6259547485,
+      "lat": 45.298225,
+      "lon": 6.5813411,
+      "tags": {
+        "addr:city": "Val Thorens",
+        "addr:postcode": "73440",
+        "addr:street": "Rue de Caron",
+        "amenity": "restaurant",
+        "check_date": "2026-01-22",
+        "name": "Le Tivoli",
+        "phone": "+334 79 23 42 06",
+        "website": "https://letivoli-restaurant.business.site/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6259550819,
+      "lat": 45.2982329,
+      "lon": 6.5812634,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "regional",
+        "name": "La Chaumière"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6404760468,
+      "lat": 45.2988739,
+      "lon": 6.5854171,
+      "tags": {
+        "amenity": "pub",
+        "name": "La Cave"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6404760619,
+      "lat": 45.2988503,
+      "lon": 6.5854819,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "La Cave"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6408890311,
+      "lat": 45.2979687,
+      "lon": 6.5803764,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "pizza;french",
+        "level": "1",
+        "name": "Brasserie au XV"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7266477517,
+      "lat": 45.2978991,
+      "lon": 6.5808073,
+      "tags": {
+        "amenity": "bar",
+        "name": "Wild and Savage"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7475361743,
+      "lat": 45.2952978,
+      "lon": 6.5840457,
+      "tags": {
+        "addr:city": "Val Thorens",
+        "addr:postcode": "73440",
+        "addr:street": "Rue de la Lombarde",
+        "amenity": "bar",
+        "brewery": "Carlsberg;Grimbergen",
+        "level": "0",
+        "name": "Le Zinc",
+        "outdoor_seating": "no",
+        "phone": "+33479000404",
+        "smoking": "outside",
+        "website": "https://www.fahrenheitseven.com/val-thorens/rotisserie-val-thorens-restaurant.html#zinc",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8439119693,
+      "lat": 45.2982461,
+      "lon": 6.5807141,
+      "tags": {
+        "amenity": "restaurant",
+        "check_date": "2026-01-22",
+        "name": "Le Blanchot"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11048185720,
+      "lat": 45.2980921,
+      "lon": 6.5800032,
+      "tags": {
+        "amenity": "pub",
+        "name": "Le Baramix"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11417060873,
+      "lat": 45.2865147,
+      "lon": 6.5839685,
+      "tags": {
+        "addr:housenumber": "73440",
+        "addr:street": "Val Thorens",
+        "amenity": "bar",
+        "min_age": "18",
+        "name": "360 Val Thorens",
+        "opening_hours": "11:00-18:00",
+        "website": "https://360valthorens.com/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11739088887,
+      "lat": 45.2974092,
+      "lon": 6.5852091,
+      "tags": {
+        "amenity": "pub",
+        "name": "O'Connels",
+        "outdoor_seating": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11778357651,
+      "lat": 45.2972661,
+      "lon": 6.5848796,
+      "tags": {
+        "addr:city": "Val Thorens",
+        "addr:postcode": "73440",
+        "addr:street": "Rue de Gebroulaz",
+        "amenity": "restaurant",
+        "cuisine": "tex-mex",
+        "name": "Favela",
+        "opening_hours": "Sa-Sun 12:00-01:30; Mo-Fr 15:00-01:30",
+        "website": "https://www.favelavalthorens.com/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12050741535,
+      "lat": 45.2967321,
+      "lon": 6.5853083,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Café Péclet",
+        "ref:FR:SIRET": "51869401300013"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12369400000,
+      "lat": 45.3000868,
+      "lon": 6.5794411,
+      "tags": {
+        "amenity": "pub",
+        "name": "Red Fox"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12633144767,
+      "lat": 45.2986518,
+      "lon": 6.5764632,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "pizza;regional;pasta",
+        "name": "Le Transalpin"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12633146240,
+      "lat": 45.2982197,
+      "lon": 6.5830062,
+      "tags": {
+        "amenity": "bar",
+        "name": "Le Roy Bar",
+        "website": "https://www.beaumier.com/fr/proprietes/hotel-le-fitz-roy/gastronomie/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12633146241,
+      "lat": 45.29835,
+      "lon": 6.5829035,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Beca",
+        "phone": "+33 4 79 00 04 78",
+        "website": "https://www.beaumier.com/fr/proprietes/hotel-le-fitz-roy/gastronomie/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12979642274,
+      "lat": 45.3047777,
+      "lon": 6.5881252,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "La Petite Cuisine",
+        "opening_hours": "Dec-Apr Mo-Su 12:00-15:00",
+        "website": "https://www.lafoliedouce.com/fr/restaurant-val-thorens.html#2"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12979642275,
+      "lat": 45.3048749,
+      "lon": 6.5879723,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "regional",
+        "diet:vegetarian": "yes",
+        "name": "La Fruitière",
+        "opening_hours": "Dec-Apr Mo-Su 12:00-15:00",
+        "phone": "+33 4 79 00 04 27",
+        "website": "https://www.lafoliedouce.com/fr/restaurant-val-thorens.html#1"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13573032170,
+      "lat": 45.2967441,
+      "lon": 6.5781288,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Le Chaudron Magique",
+        "opening_hours": "Mo-Su,PH 18:30-22:30"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13573053082,
+      "lat": 45.2962511,
+      "lon": 6.5814558,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Enjoy It"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13575452876,
+      "lat": 45.2970293,
+      "lon": 6.5837576,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "asian",
+        "name": "Yuki Yama"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13575486849,
+      "lat": 45.2975394,
+      "lon": 6.5831499,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "La Fondue"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13575488523,
+      "lat": 45.2966056,
+      "lon": 6.5838803,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Le Confidentiel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13575521850,
+      "lat": 45.2965018,
+      "lon": 6.5844258,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "La Pause de Pierrette"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13575528056,
+      "lat": 45.2971537,
+      "lon": 6.5853742,
+      "tags": {
+        "amenity": "restaurant",
+        "cuisine": "steak_house",
+        "name": "Club 72"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13575529593,
+      "lat": 45.2969375,
+      "lon": 6.5853228,
+      "tags": {
+        "amenity": "pub",
+        "name": "Le Monde"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13575531461,
+      "lat": 45.2972474,
+      "lon": 6.5853195,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "The Shelter"
+      }
+    },
     {
       "type": "way",
       "id": 22461970,

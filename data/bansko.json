@@ -2,10 +2,284 @@
   "version": 0.6,
   "generator": "Overpass API 0.7.62.11 87bfad18",
   "osm3s": {
-    "timestamp_osm_base": "2026-04-05T10:51:30Z",
+    "timestamp_osm_base": "2026-05-02T08:30:30Z",
     "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
   },
   "elements": [
+    {
+      "type": "node",
+      "id": 1314635036,
+      "lat": 41.8340029,
+      "lon": 23.4792106,
+      "tags": {
+        "name": "Hotel Rahov",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2811841579,
+      "lat": 41.8333823,
+      "lon": 23.4757854,
+      "tags": {
+        "name": "Хотел \"Маунтийн Парадайз 3\"",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2811841580,
+      "lat": 41.8326672,
+      "lon": 23.4758561,
+      "tags": {
+        "name": "Хотел \"Сънрайз Парк енд СПА\"",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4287482789,
+      "lat": 41.8284311,
+      "lon": 23.4795816,
+      "tags": {
+        "amenity": "cafe",
+        "internet_access": "wlan",
+        "name": "BBQ The Blvd"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4359243191,
+      "lat": 41.825504,
+      "lon": 23.4798811,
+      "tags": {
+        "addr:housenumber": "3",
+        "addr:postcode": "2770",
+        "addr:street": "Кралев Двор",
+        "email": "info@aparthotelaspen.com",
+        "internet_access": "wlan",
+        "name": "Апартаментен Хотел \"Аспен\"",
+        "name:en": "Aparthotel \"Aspen\"",
+        "opening_hours": "24/7",
+        "phone": "+359 88 200 4417",
+        "tourism": "hotel",
+        "website": "http://www.aparthotelaspen.com"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4665039911,
+      "lat": 41.8283337,
+      "lon": 23.4786492,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Euphoria Bar & Grill"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4672061984,
+      "lat": 41.8282777,
+      "lon": 23.477986,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Red Hot"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4931441418,
+      "lat": 41.8314603,
+      "lon": 23.4748207,
+      "tags": {
+        "name:bg": "Хотел Белведере",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5045285521,
+      "lat": 41.825837,
+      "lon": 23.4784646,
+      "tags": {
+        "amenity": "restaurant",
+        "name:en": "Victoria"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7195515485,
+      "lat": 41.8271207,
+      "lon": 23.4793786,
+      "tags": {
+        "amenity": "bar",
+        "name:en": "Bar360 - Winter Market"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7208716485,
+      "lat": 41.8279234,
+      "lon": 23.4795222,
+      "tags": {
+        "amenity": "restaurant",
+        "name:en": "Ginger"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7208716585,
+      "lat": 41.8281099,
+      "lon": 23.4792232,
+      "tags": {
+        "amenity": "restaurant",
+        "name:en": "The Corner"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7208719300,
+      "lat": 41.8288125,
+      "lon": 23.4794982,
+      "tags": {
+        "amenity": "bar",
+        "name:en": "Queens Pub"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9995130017,
+      "lat": 41.8275249,
+      "lon": 23.4797923,
+      "tags": {
+        "amenity": "pub",
+        "name": "Amigo pub"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9995130117,
+      "lat": 41.8273314,
+      "lon": 23.4788043,
+      "tags": {
+        "amenity": "bar"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9999915104,
+      "lat": 41.8292759,
+      "lon": 23.4776251,
+      "tags": {
+        "amenity": "restaurant",
+        "check_date": "2025-03-01",
+        "name": "Symphony",
+        "name:bg": "Симфония"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10916932711,
+      "lat": 41.8284259,
+      "lon": 23.4759495,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Casa di papi"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11003360966,
+      "lat": 41.8228919,
+      "lon": 23.476601,
+      "tags": {
+        "addr:city": "Банско",
+        "addr:housenumber": "129",
+        "addr:postcode": "2770",
+        "addr:street": "Пирин",
+        "amenity": "bar",
+        "brewery": "yes;stella_artois;guinness;kamenitsa;schöfferhofer",
+        "check_date": "2023-07-14",
+        "check_date:currency:XBT": "2025-07-17",
+        "contact:facebook": "https://www.facebook.com/thehubbansko/",
+        "currency:XBT": "no",
+        "name": "The HUB Bansko",
+        "payment:lightning": "no",
+        "payment:lightning_contactless": "no",
+        "payment:onchain": "no",
+        "phone": "+359 88 804 7359",
+        "source": "2023-08-30",
+        "survey:date": "2024-06-15",
+        "website": "https://the-hub-bansko.business.site/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12272000301,
+      "lat": 41.8283254,
+      "lon": 23.479142,
+      "tags": {
+        "addr:housenumber": "92E",
+        "addr:postcode": "2770",
+        "addr:street": "Пирин",
+        "name": "Пирин Палас",
+        "name:en": "Pirin Palace",
+        "opening_hours": "24/7",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12626558856,
+      "lat": 41.8288018,
+      "lon": 23.4773435,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2025-03-01",
+        "name": "sCheers",
+        "opening_hours": "08:00-21:00",
+        "wheelchair": "limited"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12895175142,
+      "lat": 41.8237599,
+      "lon": 23.4774129,
+      "tags": {
+        "amenity": "cafe",
+        "name": "The Snug Bansko",
+        "website": "https://www.facebook.com/people/The-Snug-Bansko/100088830438510/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13128024922,
+      "lat": 41.8313218,
+      "lon": 23.4749485,
+      "tags": {
+        "amenity": "bar"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13128024923,
+      "lat": 41.8311248,
+      "lon": 23.4750927,
+      "tags": {
+        "amenity": "restaurant"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13376422876,
+      "lat": 41.8239745,
+      "lon": 23.4774459,
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Space Zone"
+      }
+    },
     {
       "type": "way",
       "id": 28007931,

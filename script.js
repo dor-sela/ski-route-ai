@@ -91,6 +91,29 @@
     return x != null ? x : 1;
   }
 
+  const POI_AMENITIES = new Set(['restaurant', 'cafe', 'pub']);
+  const POI_TOURISM = new Set(['hotel', 'alpine_hut']);
+
+  function isPoiElement(el) {
+    if (el.type !== 'node' || el.lat == null || el.lon == null || !el.tags)
+      return false;
+    const am = el.tags.amenity;
+    const tu = el.tags.tourism;
+    if (am && POI_AMENITIES.has(am)) return true;
+    if (tu && POI_TOURISM.has(tu)) return true;
+    return false;
+  }
+
+  function poiTooltipText(tags) {
+    return (
+      tags.name ||
+      tags['name:en'] ||
+      tags['name:bg'] ||
+      [tags.amenity, tags.tourism].filter(Boolean).join(' · ') ||
+      'POI'
+    );
+  }
+
   /**
    * Forward edge cost: base Haversine length × multipliers for Route Goal + Skill.
    * Goal values match `<select>`: Comfort | Relaxed | Progression
@@ -122,9 +145,14 @@
     }
 
     if (G === 'Relaxed') {
-      if (tier === 'green' || tier === 'blue') return d * 0.1;
-      if (tier === 'red' || tier === 'black') return d * 50;
-      return d * 0.1;
+      let mult =
+        tier === 'green' || tier === 'blue'
+          ? 0.1
+          : tier === 'red' || tier === 'black'
+            ? 50
+            : 0.1;
+      if (T > S) mult *= 100;
+      return d * mult;
     }
 
     return d;
@@ -307,6 +335,7 @@
   let baseLayer;
   let slopesLayer;
   let waysLayerGroup;
+  let poiLayerGroup;
   let nodesLayerGroup;
   let selectionLabelsLayer;
   let forwardPolyline;
@@ -332,6 +361,8 @@
     findBtn: document.getElementById('find-route'),
     resetBtn: document.getElementById('reset-search'),
     forwardHeader: document.getElementById('forward-header'),
+    forwardHeaderTitle: document.getElementById('forward-header-title'),
+    forwardRouteWarning: document.getElementById('forward-route-warning'),
     returnHeader: document.getElementById('return-header'),
     forwardList: document.getElementById('forward-list'),
     returnList: document.getElementById('return-list'),
@@ -363,6 +394,64 @@
     document.head.appendChild(st);
   }
 
+  function applyGraphNodeRadiiFromZoom() {
+    if (!map || !nodeMarkers.size) return;
+    const r = map.getZoom() > 14 ? 6 : 3;
+    nodeMarkers.forEach(function (cm) {
+      cm.setRadius(r);
+    });
+  }
+
+  function drawPois(elements) {
+    if (!poiLayerGroup) return;
+    poiLayerGroup.clearLayers();
+    const starIcon = L.divIcon({
+      className: 'ski-poi-marker',
+      html: '<span class="ski-poi-star" aria-hidden="true">★</span>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+    elements.filter(isPoiElement).forEach(function (n) {
+      const latlng = [n.lat, n.lon];
+      const marker = L.marker(latlng, {
+        icon: starIcon,
+        interactive: true,
+      });
+      marker.bindTooltip(poiTooltipText(n.tags), {
+        direction: 'top',
+        opacity: 0.95,
+      });
+      marker.addTo(poiLayerGroup);
+    });
+  }
+
+  function setForwardRouteUi(isUphillLiftRoute) {
+    if (!el.forwardHeaderTitle || !el.forwardRouteWarning) return;
+    if (isUphillLiftRoute) {
+      el.forwardHeaderTitle.textContent =
+        '🎿 Uphill / Lift-Only Route';
+      el.forwardRouteWarning.textContent =
+        'Note: Downhill skiing is not possible between these points. This route primarily uses lifts to ascend the mountain.';
+      el.forwardRouteWarning.classList.remove('hidden');
+    } else {
+      el.forwardHeaderTitle.textContent = 'Forward Route';
+      el.forwardRouteWarning.textContent = '';
+      el.forwardRouteWarning.classList.add('hidden');
+    }
+  }
+
+  function forwardPathIsLiftDominant(pathEdges) {
+    let lifts = 0;
+    let downhill = 0;
+    pathEdges.forEach(function (e) {
+      if (e.isLift) lifts++;
+      else downhill++;
+    });
+    if (downhill === 0 && lifts > 0) return true;
+    if (downhill > 0 && lifts >= downhill * 2) return true;
+    return false;
+  }
+
   function initMap() {
     ensureRouteLabelTooltipCss();
     map = L.map('map', { zoomControl: true });
@@ -387,8 +476,14 @@
     slopesLayer.addTo(map);
 
     waysLayerGroup = L.layerGroup().addTo(map);
+    poiLayerGroup = L.layerGroup().addTo(map);
     nodesLayerGroup = L.layerGroup().addTo(map);
     selectionLabelsLayer = L.layerGroup().addTo(map);
+
+    map.on('zoomend', applyGraphNodeRadiiFromZoom);
+    map.whenReady(function () {
+      applyGraphNodeRadiiFromZoom();
+    });
   }
 
   function refreshStartEndLabels() {
@@ -481,7 +576,7 @@
     nodeKeys.forEach((key) => {
       const { lat, lng } = parseKey(key);
       const cm = L.circleMarker([lat, lng], {
-        radius: 3,
+        radius: map && map.getZoom() > 14 ? 6 : 3,
         color: '#334155',
         weight: 1,
         fillColor: '#94a3b8',
@@ -511,6 +606,7 @@
       cm.addTo(nodesLayerGroup);
       nodeMarkers.set(key, cm);
     });
+    applyGraphNodeRadiiFromZoom();
     updateStartEndStyles();
   }
 
@@ -680,6 +776,7 @@
     if (!forward) {
       lastForwardPath = null;
       lastReturnPath = null;
+      setForwardRouteUi(false);
       alert('No forward route found between the selected nodes.');
       return;
     }
@@ -690,6 +787,8 @@
 
     activeRouteView = 'forward';
     showForwardPolyline();
+
+    setForwardRouteUi(forwardPathIsLiftDominant(forward.pathEdges));
 
     pathToListItems(forward, el.forwardList);
     bindForwardListFlyTo();
@@ -715,6 +814,7 @@
     lastForwardPath = null;
     lastReturnPath = null;
     activeRouteView = 'forward';
+    setForwardRouteUi(false);
     fitResortBounds();
   }
 
@@ -728,10 +828,12 @@
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
+    setForwardRouteUi(false);
     try {
       const elements = await fetchResortData();
       const ways = elements.filter((e) => e.type === 'way' && e.geometry);
       rebuildGraph(ways);
+      drawPois(elements);
       fitResortBounds();
     } catch (err) {
       console.error(err);
