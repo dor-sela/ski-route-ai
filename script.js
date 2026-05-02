@@ -181,6 +181,21 @@
     return bestZ;
   }
 
+  /** When OSM ele is missing: coarse hint for Val Thorens (summits generally ~north of village strip). */
+  function latProxyEndHigherLikely(ps, pe, resortKey) {
+    if (resortKey !== 'val-thorens') return false;
+    return pe.lat > ps.lat + 0.00032;
+  }
+
+  function pathUsesOnlyLifts(pathObj) {
+    const edges = pathObj && pathObj.pathEdges;
+    if (!edges || !edges.length) return false;
+    for (let i = 0; i < edges.length; i++) {
+      if (!edges[i].isLift) return false;
+    }
+    return true;
+  }
+
   function segmentLengthM(coords, fromIdx, toIdx) {
     let d = 0;
     for (let i = fromIdx; i < toIdx; i++) {
@@ -555,7 +570,9 @@
       'border:2px solid rgba(251,191,36,.65);background:rgba(120,53,15,.88);color:#fef3c7;}' +
       '.ski-forward-mirror-note{margin-top:12px;padding:10px 12px;border-radius:8px;' +
       'background:rgba(251,191,36,.22);border:2px solid rgba(251,191,36,.75);' +
-      'color:#fffbeb;font-weight:700;line-height:1.45;}';
+      'color:#fffbeb;font-weight:700;line-height:1.45;}' +
+      '@keyframes ski-ascent-pop{0%{transform:scale(.96);opacity:.75;}35%{transform:scale(1.01);opacity:1;}100%{transform:scale(1);opacity:1;}}' +
+      '.ski-forward-mirror-note--pop{animation:ski-ascent-pop .6s ease-out 1;}';
     document.head.appendChild(st);
   }
 
@@ -603,9 +620,56 @@
     }
   }
 
-  function setForwardRouteUi(liftReason, elevationClause, mirrorLiftCorridor) {
+  function scrollForwardNoticeIntoView() {
+    if (!el.forwardRouteWarning || el.forwardRouteWarning.classList.contains('hidden')) return;
+    requestAnimationFrame(function () {
+      try {
+        el.forwardRouteWarning.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } catch (e) {
+        /* ignore */
+      }
+    });
+  }
+
+  /**
+   * Prominent “ascent / lifts-only” strip — always used for uphill; optional for skill when geography matches.
+   */
+  function buildAscentPopHtml(ctx) {
+    const bits = [];
+    bits.push(
+      '📍 <strong>Uphill / lifts-heavy pairing</strong> — pistes modeled downhill cannot carry you Start→End alone; expect lifts toward a higher destination.'
+    );
+    if (ctx.mirrorLiftCorridor) {
+      bits.push(
+        '<strong>Same lifts corridor Forward ↔ Return:</strong> both lists trace the same lift lines (opposite directions).'
+      );
+    }
+    if (ctx.liftOnlyForward) {
+      bits.push('<strong>Every step here is a lift</strong> — at least one lift is required along this corridor.');
+    }
+    if (ctx.elevAscentKnow && ctx.elevClauseHtml) {
+      bits.push(ctx.elevClauseHtml);
+    } else if (ctx.latProxyAscent && ctx.latProxyClauseHtml) {
+      bits.push(ctx.latProxyClauseHtml);
+    }
+    return '<div class="ski-forward-mirror-note ski-forward-mirror-note--pop">' + bits.join(' ') + '</div>';
+  }
+
+  function setForwardRouteUi(liftReason, ctx) {
+    ctx = ctx || {};
+    const mirrorLiftCorridor = !!ctx.mirrorLiftCorridor;
+    const elevClauseHtml = ctx.elevClauseHtml || '';
+    const latProxyClauseHtml = ctx.latProxyClauseHtml || '';
+    const liftOnlyForward = !!ctx.liftOnlyForward;
+    const elevAscentKnow = !!ctx.elevAscentKnow;
+    const latProxyAscent = !!ctx.latProxyAscent;
+
     const skill = liftReason === 'skill';
     const uphill = liftReason === 'uphill';
+
+    if (el.forwardHeader) {
+      el.forwardHeader.classList.toggle('forward-header-uphill', uphill);
+    }
 
     if (el.forwardHeaderTitle) {
       if (skill) {
@@ -619,35 +683,46 @@
 
     if (el.forwardRouteWarning) {
       el.forwardRouteWarning.classList.remove('forward-route-warning--skill', 'forward-route-warning--uphill');
+      el.forwardRouteWarning.style.display = '';
+
+      const ascentCtx = {
+        mirrorLiftCorridor: mirrorLiftCorridor,
+        elevClauseHtml: elevClauseHtml,
+        latProxyClauseHtml: latProxyClauseHtml,
+        liftOnlyForward: liftOnlyForward,
+        elevAscentKnow: elevAscentKnow,
+        latProxyAscent: latProxyAscent,
+      };
+
       if (skill) {
-        el.forwardRouteWarning.innerHTML =
+        let txt =
           '<strong>No downhill ski route matches your skill level / route goal</strong> between these markers — ' +
           'every reachable ski connection here is rated above what we allow for your choices, so pistes along those paths are too difficult for what you selected. ' +
           '<strong>The cyan route is lifts-only along Start→End</strong> so you can still move across the resort.';
+        const showAscentStrip =
+          mirrorLiftCorridor || elevAscentKnow || latProxyAscent || liftOnlyForward;
+        if (showAscentStrip) {
+          txt += buildAscentPopHtml(ascentCtx);
+        }
+        el.forwardRouteWarning.innerHTML = txt;
         el.forwardRouteWarning.classList.add('forward-route-warning--skill');
         el.forwardRouteWarning.classList.remove('hidden');
+        el.forwardRouteWarning.style.display = 'block';
+        scrollForwardNoticeIntoView();
       } else if (uphill) {
         let txt =
           '<strong>No downhill ski route</strong> from Start to End along pistes (given slope direction). ' +
           '<strong>This cyan route uses lifts — mainly an ascent</strong> toward your destination.';
-        if (elevationClause) {
-          txt += ' ' + elevationClause;
-        }
-        if (mirrorLiftCorridor) {
-          txt +=
-            '<div class="ski-forward-mirror-note">' +
-            '📍 <strong>Same lifts corridor Forward & Return</strong> — both lists describe the same lifts path (Start→End vs End→Start). ' +
-            (elevationClause
-              ? 'Together with the height hint above, this confirms you are on a <strong>lifts-only uphill itinerary</strong>.'
-              : 'That pattern strongly suggests a <strong>lifts-only itinerary</strong>, often because your <strong>Start is lower than your End</strong> (climbing uphill).') +
-            '</div>';
-        }
+        txt += buildAscentPopHtml(ascentCtx);
         el.forwardRouteWarning.innerHTML = txt;
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
         el.forwardRouteWarning.classList.remove('hidden');
+        el.forwardRouteWarning.style.display = 'block';
+        scrollForwardNoticeIntoView();
       } else {
         el.forwardRouteWarning.innerHTML = '';
         el.forwardRouteWarning.textContent = '';
+        el.forwardRouteWarning.style.display = '';
         el.forwardRouteWarning.classList.add('hidden');
       }
     }
@@ -978,6 +1053,9 @@
 
     let primaryForward = skiForward;
     let elevClauseHtml = '';
+    let elevAscentKnow = false;
+    let latProxyAscent = false;
+    let latProxyClauseHtml = '';
 
     if (skiForward) {
       primaryForward = skiForward;
@@ -988,22 +1066,31 @@
         lastForwardLiftReason = 'skill';
       } else {
         lastForwardLiftReason = 'uphill';
-        const ps = parseKey(startNode);
-        const pe = parseKey(endNode);
-        const zs = approximateElevationM(ps.lat, ps.lng);
-        const ze = approximateElevationM(pe.lat, pe.lng);
-        if (zs != null && ze != null && zs + 25 < ze) {
-          elevClauseHtml =
-            '<strong>Height hint from nearby OSM survey points:</strong> Start ~' +
-            Math.round(zs) +
-            ' m vs End ~' +
-            Math.round(ze) +
-            ' m — <strong>your Start is lower than your End</strong>, so this route climbs uphill by lifts.';
-        }
       }
     } else {
       primaryForward = null;
       lastForwardLiftReason = null;
+    }
+
+    if (lastForwardLiftReason === 'skill' || lastForwardLiftReason === 'uphill') {
+      const ps = parseKey(startNode);
+      const pe = parseKey(endNode);
+      const zs = approximateElevationM(ps.lat, ps.lng);
+      const ze = approximateElevationM(pe.lat, pe.lng);
+      if (zs != null && ze != null && zs + 25 < ze) {
+        elevAscentKnow = true;
+        elevClauseHtml =
+          '<strong>Height hint from nearby OSM survey points:</strong> Start ~' +
+          Math.round(zs) +
+          ' m vs End ~' +
+          Math.round(ze) +
+          ' m — <strong>your Start is lower than your End</strong>, so this pairing climbs mainly by lifts.';
+      } else if (latProxyEndHigherLikely(ps, pe, el.resort.value)) {
+        latProxyAscent = true;
+        latProxyClauseHtml =
+          '<strong>Position hint (few elevation survey points nearby):</strong> End sits farther north on the map than Start — ' +
+          'in Val Thorens summits usually lie upslope that way, so reaching End typically requires lifts.';
+      }
     }
 
     lastForwardPath = primaryForward
@@ -1016,8 +1103,17 @@
       !!lastReturnPath &&
       pathsAreReverseMirror(lastForwardPath, lastReturnPath);
 
+    const liftOnlyForward = !!(primaryForward && pathUsesOnlyLifts(primaryForward));
+
     activeRouteView = 'forward';
-    setForwardRouteUi(lastForwardLiftReason, elevClauseHtml, mirrorLiftCorridor && lastForwardLiftReason === 'uphill');
+    setForwardRouteUi(lastForwardLiftReason, {
+      mirrorLiftCorridor: mirrorLiftCorridor,
+      elevClauseHtml: elevClauseHtml,
+      latProxyClauseHtml: latProxyClauseHtml,
+      liftOnlyForward: liftOnlyForward,
+      elevAscentKnow: elevAscentKnow,
+      latProxyAscent: latProxyAscent,
+    });
 
     if (lastForwardPath) {
       el.forwardList.innerHTML = '';
