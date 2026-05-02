@@ -274,12 +274,33 @@
     return d;
   }
 
-  /** Return trip: reward lifts, penalize downhill pistes. */
+  /** Return trip: maximize lifts — each piste segment pays a huge base penalty vs lifts. */
   function liftReturnEdgeWeight(edge) {
-    let w = edge.lengthM;
-    if (edge.isLift) w *= 0.01;
-    else w *= 1000;
-    return w;
+    if (edge.isLift) return edge.lengthM * 0.001;
+    return edge.lengthM + 5e8;
+  }
+
+  /** Shortest End→Start using lift edges only (max lifts when fully connected). */
+  function routeLiftsOnly(adj, start, end) {
+    return dijkstra(
+      adj,
+      start,
+      end,
+      function (edge) {
+        if (!edge.isLift) return Infinity;
+        return edge.lengthM;
+      },
+      false
+    );
+  }
+
+  /** Return leg: lifts-only path if it exists; else lift-heavy shortest path. */
+  function routeReturnPreferred(adj, endNode, startNode, skill, goal) {
+    let ret = routeLiftsOnly(adj, endNode, startNode);
+    if (!ret) {
+      ret = routeShortest(adj, endNode, startNode, ROUTE_MODE.LIFT_RETURN, skill, goal);
+    }
+    return ret;
   }
 
   function edgeWeight(edge, mode, skill, goal) {
@@ -572,7 +593,9 @@
       'background:rgba(251,191,36,.22);border:2px solid rgba(251,191,36,.75);' +
       'color:#fffbeb;font-weight:700;line-height:1.45;}' +
       '@keyframes ski-ascent-pop{0%{transform:scale(.96);opacity:.75;}35%{transform:scale(1.01);opacity:1;}100%{transform:scale(1);opacity:1;}}' +
-      '.ski-forward-mirror-note--pop{animation:ski-ascent-pop .6s ease-out 1;}';
+      '.ski-forward-mirror-note--pop{animation:ski-ascent-pop .6s ease-out 1;}' +
+      '.ski-mirror-he-note{margin:0 0 10px;font-weight:700;line-height:1.55;color:#fffbeb;' +
+      'border-right:4px solid #fbbf24;padding:8px 12px 8px 0;background:rgba(251,191,36,.12);border-radius:6px;}';
     document.head.appendChild(st);
   }
 
@@ -631,13 +654,21 @@
     });
   }
 
+  function mirrorAscentHebrewHtml() {
+    return (
+      '<p dir="rtl" class="ski-mirror-he-note">' +
+      'שימו לב: מסלול ההלוך ומסלול החזרה חופפים לאותה מסילת משקעות (בכיוונים הפוכים). ההלוך כאן הוא בעיקר מסלול עלייה במשקעות.' +
+      '</p>'
+    );
+  }
+
   /**
-   * Prominent “ascent / lifts-only” strip — always used for uphill; optional for skill when geography matches.
+   * Prominent lifts-heavy strip — used when outbound is lifts-first; optional for skill when geography matches.
    */
   function buildAscentPopHtml(ctx) {
     const bits = [];
     bits.push(
-      '📍 <strong>Uphill / lifts-heavy pairing</strong> — pistes modeled downhill cannot carry you Start→End alone; expect lifts toward a higher destination.'
+      '📍 <strong>Lifts-heavy outbound leg</strong> — reaching your End relies heavily on lifts rather than downhill pistes.'
     );
     if (ctx.mirrorLiftCorridor) {
       bits.push(
@@ -658,6 +689,7 @@
   function setForwardRouteUi(liftReason, ctx) {
     ctx = ctx || {};
     const mirrorLiftCorridor = !!ctx.mirrorLiftCorridor;
+    const heMirror = mirrorLiftCorridor ? mirrorAscentHebrewHtml() : '';
     const elevClauseHtml = ctx.elevClauseHtml || '';
     const latProxyClauseHtml = ctx.latProxyClauseHtml || '';
     const liftOnlyForward = !!ctx.liftOnlyForward;
@@ -668,7 +700,7 @@
     const uphill = liftReason === 'uphill';
 
     if (el.forwardHeader) {
-      el.forwardHeader.classList.toggle('forward-header-uphill', uphill);
+      el.forwardHeader.classList.toggle('forward-header-uphill', uphill || (mirrorLiftCorridor && !skill));
     }
 
     if (el.forwardHeaderTitle) {
@@ -696,6 +728,7 @@
 
       if (skill) {
         let txt =
+          heMirror +
           '<strong>No downhill ski route matches your skill level / route goal</strong> between these markers — ' +
           'every reachable ski connection here is rated above what we allow for your choices, so pistes along those paths are too difficult for what you selected. ' +
           '<strong>The cyan route is lifts-only along Start→End</strong> so you can still move across the resort.';
@@ -711,10 +744,18 @@
         scrollForwardNoticeIntoView();
       } else if (uphill) {
         let txt =
-          '<strong>No downhill ski route</strong> from Start to End along pistes (given slope direction). ' +
-          '<strong>This cyan route uses lifts — mainly an ascent</strong> toward your destination.';
+          heMirror +
+          '<strong>Lifts-first route Start→End</strong> — getting to your End uses lifts heavily (cyan line). ';
         txt += buildAscentPopHtml(ascentCtx);
         el.forwardRouteWarning.innerHTML = txt;
+        el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
+        el.forwardRouteWarning.classList.remove('hidden');
+        el.forwardRouteWarning.style.display = 'block';
+        scrollForwardNoticeIntoView();
+      } else if (mirrorLiftCorridor) {
+        el.forwardRouteWarning.innerHTML =
+          heMirror +
+          '<p style="margin:0;line-height:1.45;color:#e0f2fe;font-size:.95rem;">Return uses the same lift corridor reversed (maximum lifts where the graph allows).</p>';
         el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
         el.forwardRouteWarning.classList.remove('hidden');
         el.forwardRouteWarning.style.display = 'block';
@@ -1049,7 +1090,7 @@
       skill,
       goal
     );
-    const ret = routeShortest(adj, endNode, startNode, ROUTE_MODE.LIFT_RETURN, skill, goal);
+    const ret = routeReturnPreferred(adj, endNode, startNode, skill, goal);
 
     let primaryForward = skiForward;
     let elevClauseHtml = '';
