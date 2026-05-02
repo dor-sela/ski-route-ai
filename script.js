@@ -15,6 +15,23 @@
 
   const ROUTE_MODE = { SKI_FORWARD: 'ski', LIFT_RETURN: 'lift' };
 
+  const HOTEL_TOURISM_TAGS = ['hotel', 'alpine_hut', 'chalet', 'guest_house', 'hostel', 'motel'];
+
+  function isHotelNode(element) {
+    if (!element || element.type !== 'node' || !element.tags) return false;
+    const tags = element.tags;
+    const tourism = tags.tourism != null ? String(tags.tourism).toLowerCase().trim() : '';
+    if (tourism && HOTEL_TOURISM_TAGS.indexOf(tourism) !== -1) return true;
+    const amenity = tags.amenity != null ? String(tags.amenity).toLowerCase().trim() : '';
+    if (amenity === 'hotel') return true;
+    return false;
+  }
+
+  function hotelDisplayName(tags) {
+    if (!tags || tags.name == null || String(tags.name).trim() === '') return 'Hotel';
+    return String(tags.name);
+  }
+
   function pisteColor(tag) {
     if (!tag) return '#3b82f6';
     const t = String(tag).toLowerCase();
@@ -317,6 +334,7 @@
   let map;
   let waysLayerGroup;
   let nodesLayerGroup;
+  let hotelsLayerGroup;
   let selectionLabelsLayer;
   let forwardPolyline;
   let returnPolyline;
@@ -331,6 +349,8 @@
   let lastForwardPath = null;
   /** @type {{ pathNodes: string[], pathEdges: object[] } | null} */
   let lastReturnPath = null;
+  /** True when forward route is the lift-only fallback (no ski route exists). */
+  let lastForwardIsLiftFallback = false;
   /** @type {L.CircleMarker | null} */
   let activeNodeHighlight = null;
 
@@ -342,6 +362,7 @@
     findBtn: document.getElementById('find-route'),
     resetBtn: document.getElementById('reset-search'),
     forwardHeader: document.getElementById('forward-header'),
+    forwardHeaderTitle: document.getElementById('forward-header-title'),
     forwardRouteWarning: document.getElementById('forward-route-warning'),
     returnHeader: document.getElementById('return-header'),
     forwardList: document.getElementById('forward-list'),
@@ -370,8 +391,83 @@
       'border-radius:0.25rem;border:1px solid #e2e8f0;}' +
       '.leaflet-tooltip.route-label-end{' +
       'font-weight:700;color:#dc2626;background:#fff;padding:0.25rem 0.5rem;' +
-      'border-radius:0.25rem;border:1px solid #e2e8f0;}';
+      'border-radius:0.25rem;border:1px solid #e2e8f0;}' +
+      '.ski-hotel-star-wrap{background:transparent!important;border:none!important;' +
+      'font-size:18px;line-height:18px;text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.7);}' +
+      '.leaflet-tooltip.ski-hotel-tip{' +
+      'font-size:11px;font-weight:600;background:#fffbeb;color:#7c2d12;padding:2px 6px;' +
+      'border:1px solid #f59e0b;border-radius:3px;}' +
+      '.forward-route-warning{margin:6px 0 8px;padding:8px 10px;font-size:12px;line-height:1.35;' +
+      'border:1px solid rgba(245,158,11,.45);background:rgba(120,53,15,.45);color:#fef3c7;' +
+      'border-radius:6px;}';
     document.head.appendChild(st);
+  }
+
+  /** Node click radius scales with zoom so they stay easy to click when zoomed in. */
+  function nodeRadiusForZoom(z) {
+    if (!Number.isFinite(z)) return 4;
+    if (z >= 17) return 9;
+    if (z >= 16) return 8;
+    if (z >= 15) return 6;
+    if (z >= 14) return 5;
+    return 4;
+  }
+
+  function applyGraphNodeRadiiFromZoom() {
+    if (!map || !nodeMarkers.size) return;
+    const r = nodeRadiusForZoom(map.getZoom());
+    nodeMarkers.forEach(function (cm) {
+      cm.setRadius(r);
+    });
+  }
+
+  /** Hotel POIs from JSON nodes with a star icon and hover tooltip. */
+  function drawHotelMarkersFromElements(elements) {
+    if (!hotelsLayerGroup) return;
+    hotelsLayerGroup.clearLayers();
+    if (!elements || !elements.length) return;
+
+    const starIcon = L.divIcon({
+      className: 'ski-hotel-star-wrap',
+      html: '<span style="color:#fbbf24;">★</span>',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    });
+
+    for (let i = 0; i < elements.length; i++) {
+      const node = elements[i];
+      if (!isHotelNode(node)) continue;
+      const lat = node.lat;
+      const lon = node.lon;
+      if (lat == null || lon == null) continue;
+
+      const marker = L.marker([lat, lon], { icon: starIcon, interactive: true });
+      marker.bindTooltip(hotelDisplayName(node.tags), {
+        direction: 'top',
+        sticky: false,
+        className: 'ski-hotel-tip',
+        offset: [0, -6],
+      });
+      marker.addTo(hotelsLayerGroup);
+    }
+  }
+
+  function setForwardRouteUi(isLiftFallback) {
+    if (el.forwardHeaderTitle) {
+      el.forwardHeaderTitle.textContent = isLiftFallback
+        ? '🚠 Lift-Only Route (No Ski Path)'
+        : 'Forward Route';
+    }
+    if (el.forwardRouteWarning) {
+      if (isLiftFallback) {
+        el.forwardRouteWarning.textContent =
+          'No downhill ski route from Start to End. Showing a lift-only return-style route to reach the destination.';
+        el.forwardRouteWarning.classList.remove('hidden');
+      } else {
+        el.forwardRouteWarning.textContent = '';
+        el.forwardRouteWarning.classList.add('hidden');
+      }
+    }
   }
 
   function resortBboxString() {
@@ -401,7 +497,11 @@
 
     waysLayerGroup = L.layerGroup().addTo(map);
     nodesLayerGroup = L.layerGroup().addTo(map);
+    hotelsLayerGroup = L.layerGroup().addTo(map);
     selectionLabelsLayer = L.layerGroup().addTo(map);
+
+    map.on('zoomend', applyGraphNodeRadiiFromZoom);
+    map.whenReady(applyGraphNodeRadiiFromZoom);
   }
 
   function refreshStartEndLabels() {
@@ -479,10 +579,11 @@
     nodesLayerGroup.clearLayers();
     nodeMarkers = new Map();
     const nodeKeys = currentAdj.nodeKeys || new Set();
+    const r = map ? nodeRadiusForZoom(map.getZoom()) : 4;
     nodeKeys.forEach(function (key) {
       const p = parseKey(key);
       const cm = L.circleMarker([p.lat, p.lng], {
-        radius: 3,
+        radius: r,
         color: '#334155',
         weight: 1,
         fillColor: '#94a3b8',
@@ -511,6 +612,7 @@
       cm.addTo(nodesLayerGroup);
       nodeMarkers.set(key, cm);
     });
+    applyGraphNodeRadiiFromZoom();
     updateStartEndStyles();
   }
 
@@ -585,7 +687,7 @@
     const latlngs = polylineLatLngsFromPath(lastForwardPath);
     if (forwardPolyline) map.removeLayer(forwardPolyline);
     forwardPolyline = L.polyline(latlngs, {
-      color: 'yellow',
+      color: lastForwardIsLiftFallback ? 'cyan' : 'yellow',
       weight: 8,
       opacity: 0.6,
     }).addTo(map);
@@ -605,12 +707,6 @@
       weight: 8,
       opacity: 0.6,
     }).addTo(map);
-  }
-
-  function hideForwardWarning() {
-    if (!el.forwardRouteWarning) return;
-    el.forwardRouteWarning.textContent = '';
-    el.forwardRouteWarning.classList.add('hidden');
   }
 
   function clearLists() {
@@ -672,21 +768,46 @@
     clearActiveNodeHighlight();
     clearRouteLayers();
     clearLists();
-    hideForwardWarning();
+    lastForwardIsLiftFallback = false;
+    setForwardRouteUi(false);
 
     const skill = el.skill.value;
     const goal = el.goal.value;
 
-    const forward = routeShortest(adj, startNode, endNode, ROUTE_MODE.SKI_FORWARD, skill, goal);
+    const skiForward = routeShortest(
+      adj,
+      startNode,
+      endNode,
+      ROUTE_MODE.SKI_FORWARD,
+      skill,
+      goal
+    );
 
     const ret = routeShortest(adj, endNode, startNode, ROUTE_MODE.LIFT_RETURN, skill, goal);
 
-    lastForwardPath = forward
-      ? { pathNodes: forward.pathNodes, pathEdges: forward.pathEdges }
+    let primaryForward = skiForward;
+    if (!primaryForward) {
+      const liftForward = routeShortest(
+        adj,
+        startNode,
+        endNode,
+        ROUTE_MODE.LIFT_RETURN,
+        skill,
+        goal
+      );
+      if (liftForward) {
+        primaryForward = liftForward;
+        lastForwardIsLiftFallback = true;
+      }
+    }
+
+    lastForwardPath = primaryForward
+      ? { pathNodes: primaryForward.pathNodes, pathEdges: primaryForward.pathEdges }
       : null;
     lastReturnPath = ret ? { pathNodes: ret.pathNodes, pathEdges: ret.pathEdges } : null;
 
     activeRouteView = 'forward';
+    setForwardRouteUi(!!lastForwardPath && lastForwardIsLiftFallback);
 
     if (lastForwardPath) {
       pathToListItems(lastForwardPath, el.forwardList);
@@ -694,11 +815,17 @@
       showForwardPolyline();
     } else {
       const li = document.createElement('li');
-      li.textContent = 'No ski route found for this skill/goal between these nodes.';
+      li.textContent =
+        'No route found between these nodes (no ski path and no lift path available).';
       el.forwardList.appendChild(li);
     }
 
-    if (lastReturnPath) {
+    if (lastForwardIsLiftFallback) {
+      const note = document.createElement('li');
+      note.textContent =
+        'Return Trip is the same lift-only route shown above (no downhill ski path).';
+      el.returnList.appendChild(note);
+    } else if (lastReturnPath) {
       pathToListItems(lastReturnPath, el.returnList);
     } else {
       const li = document.createElement('li');
@@ -717,8 +844,9 @@
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
+    lastForwardIsLiftFallback = false;
     activeRouteView = 'forward';
-    hideForwardWarning();
+    setForwardRouteUi(false);
     fitResortBounds();
   }
 
@@ -727,19 +855,22 @@
     startNode = null;
     endNode = null;
     selectionLabelsLayer.clearLayers();
+    if (hotelsLayerGroup) hotelsLayerGroup.clearLayers();
     clearActiveNodeHighlight();
     clearRouteLayers();
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
+    lastForwardIsLiftFallback = false;
     activeRouteView = 'forward';
-    hideForwardWarning();
+    setForwardRouteUi(false);
     try {
       const elements = await fetchResortData();
       const ways = elements.filter(function (e) {
         return e.type === 'way' && e.geometry && e.geometry.length >= 2;
       });
       rebuildGraph(ways);
+      drawHotelMarkersFromElements(elements);
       fitResortBounds();
     } catch (err) {
       console.error(err);
