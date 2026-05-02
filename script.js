@@ -2,9 +2,9 @@
   'use strict';
 
   const RESORTS = {
-    'val-thorens': { bbox: '45.27,6.55,45.32,6.61', label: 'Val Thorens' },
-    bansko: { bbox: '41.79,23.43,41.84,23.48', label: 'Bansko' },
-    zermatt: { bbox: '45.98,7.70,46.03,7.77', label: 'Zermatt' },
+    'val-thorens': { bbox: '45.27,6.55,45.32,6.61' },
+    bansko: { bbox: '41.79,23.43,41.84,23.48' },
+    zermatt: { bbox: '45.98,7.70,46.03,7.77' },
   };
 
   const RESORT_DATA_FILES = {
@@ -13,37 +13,7 @@
     zermatt: './data/zermatt.json',
   };
 
-  /** Mode 1: ski-first routing (penalize lifts vs pistes). Mode 2: lift ascent (“return trip” weights). */
-  const ROUTE_MODE = { SKI_FORWARD: 'ski', LIFT_ASCENT: 'lift' };
-
-  const HOTEL_TOURISM_VALUES = [
-    'hotel',
-    'alpine_hut',
-    'chalet',
-    'guest_house',
-    'hostel',
-    'motel',
-  ];
-
-  function isHotelNode(element) {
-    if (!element || element.type !== 'node' || !element.tags) return false;
-    const tags = element.tags;
-    const t = tags.tourism;
-    if (t != null && String(t).trim() !== '') {
-      const norm = String(t).toLowerCase();
-      if (HOTEL_TOURISM_VALUES.indexOf(norm) !== -1) return true;
-    }
-    const amenity = tags.amenity != null ? String(tags.amenity).toLowerCase() : '';
-    if (amenity === 'hotel' || amenity === 'hostel' || amenity === 'motel') return true;
-    const building = tags.building != null ? String(tags.building).toLowerCase() : '';
-    if (building === 'hotel' && tags.name != null && String(tags.name).trim() !== '') return true;
-    return false;
-  }
-
-  function hotelDisplayName(tags) {
-    if (!tags || tags.name == null || String(tags.name).trim() === '') return 'Hotel';
-    return String(tags.name);
-  }
+  const ROUTE_MODE = { SKI_FORWARD: 'ski', LIFT_RETURN: 'lift' };
 
   function pisteColor(tag) {
     if (!tag) return '#3b82f6';
@@ -120,13 +90,14 @@
   }
 
   /**
-   * Mode 1 — Forward ski: penalize lifts; reward on-piste alignment with goal/skill;
-   * heavily penalize pistes above skill.
+   * Forward ski routing: base weight = geographic distance (meters).
+   * Goal-specific skill gates: pistes above allowed tier → Infinity.
+   * Rewards steer Dijkstra toward matching difficulties.
    */
-  function mode1SkiForwardEdgeWeight(edge, skill, goal) {
+  function skiForwardEdgeWeight(edge, skill, goal) {
     const d = edge.lengthM;
     if (edge.isLift) {
-      return d * 2.6;
+      return d * 2.5;
     }
 
     const tier = pisteTierFromTag(edge.difficulty);
@@ -135,40 +106,37 @@
     const G = String(goal);
 
     if (G === 'Comfort') {
-      if (T > S) return d * 100;
-      if (T === S) return d * 0.1;
-      return d;
+      if (T > S) return Infinity;
+      if (T === S) return d * 0.08;
+      return d * 1;
     }
     if (G === 'Progression') {
-      if (T >= S + 2) return d * 100;
-      if (T === S + 1) return d * 0.05;
-      if (T === S) return d * 0.5;
-      return d;
+      if (T >= S + 2) return Infinity;
+      if (T === S + 1) return d * 0.04;
+      if (T === S) return d * 0.35;
+      return d * 1.15;
     }
     if (G === 'Relaxed') {
-      let mult =
-        tier === 'green' || tier === 'blue'
-          ? 0.12
-          : tier === 'red' || tier === 'black'
-            ? 50
-            : 0.12;
-      if (T > S) mult *= 100;
-      return d * mult;
+      if (T > S) return Infinity;
+      if (tier === 'green' || tier === 'blue') return d * 0.1;
+      if (tier === 'red') return d * 8;
+      return d * 40;
     }
+    if (T > S) return Infinity;
     return d;
   }
 
-  /** Mode 2 — same cost model as “return trip”: lifts cheap, downhill pistes expensive. */
-  function mode2LiftAscentEdgeWeight(edge) {
+  /** Return trip: reward lifts, penalize downhill pistes. */
+  function liftReturnEdgeWeight(edge) {
     let w = edge.lengthM;
     if (edge.isLift) w *= 0.01;
     else w *= 1000;
     return w;
   }
 
-  function edgeWeightForMode(edge, mode, skill, goal) {
-    if (mode === ROUTE_MODE.LIFT_ASCENT) return mode2LiftAscentEdgeWeight(edge);
-    return mode1SkiForwardEdgeWeight(edge, skill, goal);
+  function edgeWeight(edge, mode, skill, goal) {
+    if (mode === ROUTE_MODE.LIFT_RETURN) return liftReturnEdgeWeight(edge);
+    return skiForwardEdgeWeight(edge, skill, goal);
   }
 
   function buildAdjacency(ways) {
@@ -212,11 +180,11 @@
     });
 
     const adj = new Map();
-    function addUndirected(u, v, edge) {
+    function addUndirected(u, v, edgeObj) {
       if (!adj.has(u)) adj.set(u, []);
       if (!adj.has(v)) adj.set(v, []);
-      adj.get(u).push({ node: v, edge });
-      adj.get(v).push({ node: u, edge });
+      adj.get(u).push({ node: v, edge: edgeObj });
+      adj.get(v).push({ node: u, edge: edgeObj });
     }
 
     prepared.forEach(function (row) {
@@ -318,28 +286,10 @@
     return { pathNodes: pathNodes, pathEdges: pathEdges, totalCost: totalCost };
   }
 
-  function dijkstraRouted(adj, start, end, mode, skill, goal) {
+  function routeShortest(adj, start, end, mode, skill, goal) {
     return dijkstra(adj, start, end, function (edge) {
-      return edgeWeightForMode(edge, mode, skill, goal);
+      return edgeWeight(edge, mode, skill, goal);
     });
-  }
-
-  function mode1Failed(startKey, endKey, result) {
-    if (!result) return true;
-    if (!Number.isFinite(result.totalCost) || result.totalCost === Infinity) return true;
-    if (startKey !== endKey && (!result.pathEdges || result.pathEdges.length === 0))
-      return true;
-    return false;
-  }
-
-  /** Geo order of B→A lift-favoring path flipped to Start→End for list and main polyline. */
-  function reverseRoutePath(result) {
-    if (!result || !result.pathNodes || result.pathNodes.length < 2) return result;
-    return {
-      pathNodes: result.pathNodes.slice().reverse(),
-      pathEdges: (result.pathEdges || []).slice().reverse(),
-      totalCost: result.totalCost,
-    };
   }
 
   function routePolylineFromPath(pathNodes, pathEdges) {
@@ -365,10 +315,7 @@
   }
 
   let map;
-  let baseLayer;
-  let slopesLayer;
   let waysLayerGroup;
-  let poiLayerGroup;
   let nodesLayerGroup;
   let selectionLabelsLayer;
   let forwardPolyline;
@@ -384,7 +331,6 @@
   let lastForwardPath = null;
   /** @type {{ pathNodes: string[], pathEdges: object[] } | null} */
   let lastReturnPath = null;
-  let lastForwardIsUphillFallback = false;
   /** @type {L.CircleMarker | null} */
   let activeNodeHighlight = null;
 
@@ -396,7 +342,6 @@
     findBtn: document.getElementById('find-route'),
     resetBtn: document.getElementById('reset-search'),
     forwardHeader: document.getElementById('forward-header'),
-    forwardHeaderTitle: document.getElementById('forward-header-title'),
     forwardRouteWarning: document.getElementById('forward-route-warning'),
     returnHeader: document.getElementById('return-header'),
     forwardList: document.getElementById('forward-list'),
@@ -415,15 +360,11 @@
     ];
   }
 
-  function ensureInjectedCss() {
-    if (document.getElementById('ski-agent-injected-css')) return;
+  function ensureRouteLabelCss() {
+    if (document.getElementById('ski-agent-route-css')) return;
     const st = document.createElement('style');
-    st.id = 'ski-agent-injected-css';
+    st.id = 'ski-agent-route-css';
     st.textContent =
-      '.ski-hotel-purple-icon{background:transparent!important;border:none!important;}' +
-      '.leaflet-tooltip.hotel-poi-tip{' +
-      'font-weight:600;background:#faf5ff;color:#581c87;padding:4px 8px;' +
-      'border:1px solid #a855f7;border-radius:4px;}' +
       '.leaflet-tooltip.route-label-start{' +
       'font-weight:700;color:#16a34a;background:#fff;padding:0.25rem 0.5rem;' +
       'border-radius:0.25rem;border:1px solid #e2e8f0;}' +
@@ -433,106 +374,37 @@
     document.head.appendChild(st);
   }
 
-  function applyGraphNodeRadiiFromZoom() {
-    if (!map || !nodeMarkers.size) return;
-    const r = map.getZoom() > 14 ? 6 : 3;
-    nodeMarkers.forEach(function (cm) {
-      cm.setRadius(r);
-    });
+  function resortBboxString() {
+    return RESORTS[el.resort.value].bbox;
   }
 
-  /**
-   * CRITICAL: parse full `elements[]` from resort JSON — meaningful lodging POIs on the map.
-   */
-  function drawHotelPoisFromElements(elements) {
-    if (!poiLayerGroup || !elements || !elements.length) {
-      if (poiLayerGroup) poiLayerGroup.clearLayers();
-      return;
-    }
-    poiLayerGroup.clearLayers();
-
-    const purpleSquareIcon = L.divIcon({
-      className: 'ski-hotel-purple-icon',
-      html:
-        '<div class="ski-hotel-purple-square" style="width:20px;height:20px;' +
-        'background:#9333ea;border:2px solid #fae8ff;border-radius:4px;' +
-        'box-shadow:0 2px 10px rgba(0,0,0,.55);"></div>',
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
-    });
-
-    for (let i = 0; i < elements.length; i++) {
-      const element = elements[i];
-      if (!isHotelNode(element)) continue;
-      const lat = element.lat;
-      const lon = element.lon;
-      if (lat == null || lon == null) continue;
-
-      const label = hotelDisplayName(element.tags);
-      const marker = L.marker([lat, lon], { icon: purpleSquareIcon, interactive: true });
-      marker.bindTooltip(label, {
-        direction: 'top',
-        permanent: true,
-        className: 'hotel-poi-tip',
-        offset: [0, -10],
-      });
-      marker.addTo(poiLayerGroup);
-      if (typeof marker.bringToFront === 'function') marker.bringToFront();
-    }
-  }
-
-  function setForwardRouteUi(isUphill) {
-    if (!el.forwardHeaderTitle || !el.forwardRouteWarning) return;
-    if (el.forwardHeader) {
-      el.forwardHeader.classList.toggle('forward-header-uphill', !!isUphill);
-    }
-    if (isUphill) {
-      el.forwardHeaderTitle.textContent = '🚠 Uphill / Lift-Only Route';
-      el.forwardRouteWarning.textContent =
-        'No ski route from Start to End. Using lift-favoring search from End toward Start only; the path is shown reversed (Start → End).';
-      el.forwardRouteWarning.classList.remove('hidden');
-      el.forwardRouteWarning.classList.add('forward-route-warning--uphill');
-    } else {
-      el.forwardHeaderTitle.textContent = 'Forward Route';
-      el.forwardRouteWarning.textContent = '';
-      el.forwardRouteWarning.classList.add('hidden');
-      el.forwardRouteWarning.classList.remove('forward-route-warning--uphill');
-    }
+  function fitResortBounds() {
+    map.fitBounds(getBboxBoundsLiteral(resortBboxString()), { padding: [24, 24] });
   }
 
   function initMap() {
-    ensureInjectedCss();
+    ensureRouteLabelCss();
     map = L.map('map', { zoomControl: true });
 
-    baseLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
       attribution:
         '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
       maxZoom: 22,
       maxNativeZoom: 17,
-    });
+    }).addTo(map);
 
-    slopesLayer = L.tileLayer('https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png', {
+    L.tileLayer('https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png', {
       maxZoom: 22,
       maxNativeZoom: 17,
       opacity: 0.65,
-    });
-
-    baseLayer.addTo(map);
-    slopesLayer.addTo(map);
+    }).addTo(map);
 
     waysLayerGroup = L.layerGroup().addTo(map);
     nodesLayerGroup = L.layerGroup().addTo(map);
-    poiLayerGroup = L.layerGroup().addTo(map);
     selectionLabelsLayer = L.layerGroup().addTo(map);
-
-    map.on('zoomend', applyGraphNodeRadiiFromZoom);
-    map.whenReady(function () {
-      applyGraphNodeRadiiFromZoom();
-    });
   }
 
   function refreshStartEndLabels() {
-    if (!selectionLabelsLayer) return;
     selectionLabelsLayer.clearLayers();
     if (startNode) {
       const p = parseKey(startNode);
@@ -568,14 +440,6 @@
       });
       m.addTo(selectionLabelsLayer);
     }
-  }
-
-  function resortBboxString() {
-    return RESORTS[el.resort.value].bbox;
-  }
-
-  function fitResortBounds() {
-    map.fitBounds(getBboxBoundsLiteral(resortBboxString()), { padding: [24, 24] });
   }
 
   function clearRouteLayers() {
@@ -618,7 +482,7 @@
     nodeKeys.forEach(function (key) {
       const p = parseKey(key);
       const cm = L.circleMarker([p.lat, p.lng], {
-        radius: map && map.getZoom() > 14 ? 6 : 3,
+        radius: 3,
         color: '#334155',
         weight: 1,
         fillColor: '#94a3b8',
@@ -647,7 +511,6 @@
       cm.addTo(nodesLayerGroup);
       nodeMarkers.set(key, cm);
     });
-    applyGraphNodeRadiiFromZoom();
     updateStartEndStyles();
   }
 
@@ -722,7 +585,7 @@
     const latlngs = polylineLatLngsFromPath(lastForwardPath);
     if (forwardPolyline) map.removeLayer(forwardPolyline);
     forwardPolyline = L.polyline(latlngs, {
-      color: lastForwardIsUphillFallback ? 'cyan' : 'yellow',
+      color: 'yellow',
       weight: 8,
       opacity: 0.6,
     }).addTo(map);
@@ -742,6 +605,12 @@
       weight: 8,
       opacity: 0.6,
     }).addTo(map);
+  }
+
+  function hideForwardWarning() {
+    if (!el.forwardRouteWarning) return;
+    el.forwardRouteWarning.textContent = '';
+    el.forwardRouteWarning.classList.add('hidden');
   }
 
   function clearLists() {
@@ -803,81 +672,35 @@
     clearActiveNodeHighlight();
     clearRouteLayers();
     clearLists();
+    hideForwardWarning();
 
     const skill = el.skill.value;
     const goal = el.goal.value;
 
-    const mode1 = dijkstraRouted(
-      adj,
-      startNode,
-      endNode,
-      ROUTE_MODE.SKI_FORWARD,
-      skill,
-      goal
-    );
+    const forward = routeShortest(adj, startNode, endNode, ROUTE_MODE.SKI_FORWARD, skill, goal);
 
-    let primary = mode1;
-    let uphill = false;
-    let liftFallbackOnly = false;
+    const ret = routeShortest(adj, endNode, startNode, ROUTE_MODE.LIFT_RETURN, skill, goal);
 
-    if (mode1Failed(startNode, endNode, mode1)) {
-      const rawReturn = dijkstraRouted(
-        adj,
-        endNode,
-        startNode,
-        ROUTE_MODE.LIFT_ASCENT,
-        skill,
-        goal
-      );
-      if (mode1Failed(endNode, startNode, rawReturn)) {
-        lastForwardPath = null;
-        lastReturnPath = null;
-        lastForwardIsUphillFallback = false;
-        setForwardRouteUi(false);
-        alert('No route found between these nodes.');
-        return;
-      }
-      primary = reverseRoutePath(rawReturn);
-      uphill = true;
-      liftFallbackOnly = true;
-    }
-
-    lastForwardPath = {
-      pathNodes: primary.pathNodes,
-      pathEdges: primary.pathEdges,
-    };
-    lastForwardIsUphillFallback = uphill;
-
-    let back = null;
-    if (!liftFallbackOnly) {
-      back = dijkstraRouted(
-        adj,
-        endNode,
-        startNode,
-        ROUTE_MODE.LIFT_ASCENT,
-        skill,
-        goal
-      );
-    }
-    lastReturnPath = back ? { pathNodes: back.pathNodes, pathEdges: back.pathEdges } : null;
+    lastForwardPath = forward
+      ? { pathNodes: forward.pathNodes, pathEdges: forward.pathEdges }
+      : null;
+    lastReturnPath = ret ? { pathNodes: ret.pathNodes, pathEdges: ret.pathEdges } : null;
 
     activeRouteView = 'forward';
-    setForwardRouteUi(uphill);
-    showForwardPolyline();
 
-    pathToListItems(lastForwardPath, el.forwardList);
-    bindForwardListFlyTo();
-
-    if (liftFallbackOnly) {
-      el.returnList.innerHTML = '';
+    if (lastForwardPath) {
+      pathToListItems(lastForwardPath, el.forwardList);
+      bindForwardListFlyTo();
+      showForwardPolyline();
+    } else {
       const li = document.createElement('li');
-      li.textContent =
-        'Lift fallback: only End→Start was computed. The main route above is that path, shown from Start to End.';
-      el.returnList.appendChild(li);
-    } else if (lastReturnPath) {
+      li.textContent = 'No ski route found for this skill/goal between these nodes.';
+      el.forwardList.appendChild(li);
+    }
+
+    if (lastReturnPath) {
       pathToListItems(lastReturnPath, el.returnList);
     } else {
-      el.returnList.innerHTML = '';
       const li = document.createElement('li');
       li.textContent = 'No return route via lifts found.';
       el.returnList.appendChild(li);
@@ -887,16 +710,15 @@
   function resetSearch() {
     startNode = null;
     endNode = null;
-    if (selectionLabelsLayer) selectionLabelsLayer.clearLayers();
+    selectionLabelsLayer.clearLayers();
     updateStartEndStyles();
     clearActiveNodeHighlight();
     clearRouteLayers();
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
-    lastForwardIsUphillFallback = false;
     activeRouteView = 'forward';
-    setForwardRouteUi(false);
+    hideForwardWarning();
     fitResortBounds();
   }
 
@@ -904,21 +726,20 @@
     setLoading(true);
     startNode = null;
     endNode = null;
-    if (selectionLabelsLayer) selectionLabelsLayer.clearLayers();
+    selectionLabelsLayer.clearLayers();
     clearActiveNodeHighlight();
     clearRouteLayers();
     clearLists();
     lastForwardPath = null;
     lastReturnPath = null;
-    lastForwardIsUphillFallback = false;
-    setForwardRouteUi(false);
+    activeRouteView = 'forward';
+    hideForwardWarning();
     try {
       const elements = await fetchResortData();
       const ways = elements.filter(function (e) {
-        return e.type === 'way' && e.geometry;
+        return e.type === 'way' && e.geometry && e.geometry.length >= 2;
       });
       rebuildGraph(ways);
-      drawHotelPoisFromElements(elements);
       fitResortBounds();
     } catch (err) {
       console.error(err);
@@ -934,9 +755,10 @@
   el.forwardHeader.addEventListener('click', showForwardPolyline);
 
   el.returnHeader.addEventListener('click', showReturnPolyline);
+
   el.returnList.addEventListener('click', function (e) {
-    showReturnPolyline();
     const li = e.target.closest('li');
+    showReturnPolyline();
     if (li && li.dataset.lat != null && li.dataset.lng != null) {
       const la = parseFloat(li.dataset.lat);
       const ln = parseFloat(li.dataset.lng);
