@@ -96,19 +96,25 @@
     return out;
   }
 
+  /**
+   * European-style display colours for OSM piste:difficulty (align with Alps resort signage / tiles).
+   * novice→green, easy→blue, intermediate→red, advanced/expert/extreme/freeride→black.
+   */
   function pisteColor(tag) {
-    const t = String(tag).toLowerCase();
+    if (tag == null || String(tag).trim() === '') return '#3b82f6';
+    const t = String(tag).toLowerCase().trim();
+    if (t === 'novice' || t.includes('novice') || t === 'green') return '#22c55e';
+    if (t === 'easy' || t === 'blue' || t.includes('beginner') || t === 'elementary') return '#3b82f6';
+    if (t === 'intermediate' || t === 'red') return '#ef4444';
+    if (t === 'advanced') return '#171717';
     if (
-      t === 'green' ||
-      t.includes('novice') ||
-      t === 'easy' ||
-      t.includes('beginner') ||
-      t === 'elementary'
+      t === 'expert' ||
+      t === 'extreme' ||
+      t.includes('freeride') ||
+      t.includes('expert') ||
+      t === 'black'
     )
-      return '#22c55e';
-    if (t === 'blue' || t === 'intermediate') return '#3b82f6';
-    if (t === 'red' || t === 'advanced') return '#ef4444';
-    if (t === 'black' || t.includes('expert') || t === 'extreme' || t.includes('freeride')) return '#171717';
+      return '#171717';
     return '#3b82f6';
   }
 
