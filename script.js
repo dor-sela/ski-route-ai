@@ -190,79 +190,61 @@
     return d;
   }
 
-  function pisteTierFromTag(tag) {
-    if (!tag) return 'blue';
-    const t = String(tag).toLowerCase();
-    if (
-      t === 'green' ||
-      t.includes('novice') ||
-      t === 'easy' ||
-      t.includes('beginner') ||
-      t === 'elementary'
-    )
-      return 'green';
-    if (t === 'blue' || t === 'intermediate') return 'blue';
-    if (t === 'red' || t === 'advanced') return 'red';
-    if (t === 'black' || t.includes('expert') || t === 'extreme' || t.includes('freeride')) return 'black';
-    return 'blue';
-  }
-
-  function skillOrdinal(skill) {
-    switch (skill) {
-      case 'never':
-      case 'first-week':
-        return 0;
-      case 'low-intermediate':
-        return 1;
-      case 'high-intermediate':
-        return 2;
-      case 'advanced':
-      case 'expert':
-        return 3;
-      default:
-        return 1;
-    }
-  }
-
-  function tierOrdinal(tier) {
-    const o = { green: 0, blue: 1, red: 2, black: 3 };
-    return o[tier] != null ? o[tier] : 1;
+  /**
+   * European OSM piste:difficulty → ordinal for routing (0=novice/green … 4=expert/freeride).
+   */
+  function pisteDifficultyOrdinal(tag) {
+    if (tag == null || String(tag).trim() === '') return 1;
+    const t = String(tag).toLowerCase().trim();
+    if (t === 'novice' || t.includes('novice') || t === 'green') return 0;
+    if (t === 'easy' || t === 'blue' || t.includes('beginner') || t === 'elementary') return 1;
+    if (t === 'intermediate' || t === 'red') return 2;
+    if (t === 'advanced' || t === 'black') return 3;
+    if (t === 'expert' || t === 'extreme' || t.includes('freeride') || t.includes('expert')) return 4;
+    return 1;
   }
 
   /**
-   * Forward ski routing: cost dominated by piste difficulty vs skill/goal (invalid tier → Infinity).
-   * Lifts (aerialway) use a moderate distance multiplier only — tier rules apply to pistes.
+   * Forward ski routing: European difficulty vs selected skill. Invalid combinations → Infinity (fail-state).
+   * Lifts use distance multiplier only. `goal` reserved for UI; skill rules fully determine piste cost.
    */
   function skiForwardEdgeWeight(edge, skill, goal) {
+    void goal;
     const d = edge.lengthM;
     if (edge.isLift) {
       return d * 2.5;
     }
 
-    const tier = pisteTierFromTag(edge.difficulty);
-    const T = tierOrdinal(tier);
-    const S = skillOrdinal(skill);
-    const G = String(goal);
+    const T = pisteDifficultyOrdinal(edge.difficulty);
 
-    if (G === 'Comfort') {
-      if (T > S) return Infinity;
-      if (T === S) return d * 0.06;
-      return d * (1 + (S - T) * 0.35);
+    if (skill === 'never') {
+      if (T === 0) return d * 0.04;
+      return Infinity;
     }
-    if (G === 'Progression') {
-      if (T >= S + 2) return Infinity;
-      if (T === S + 1) return d * 0.03;
-      if (T === S) return d * 0.28;
-      return d * (1.2 + (S - T) * 0.25);
+    if (skill === 'low-intermediate') {
+      if (T === 0) return d * 0.08;
+      if (T === 1) return d * 0.06;
+      return Infinity;
     }
-    if (G === 'Relaxed') {
-      if (T > S) return Infinity;
-      if (tier === 'green' || tier === 'blue') return d * 0.08;
-      if (tier === 'red') return d * 10;
-      return d * 50;
+    if (skill === 'high-intermediate') {
+      if (T === 0) return d * 0.12;
+      if (T === 1) return d * 0.09;
+      if (T === 2) return d * 0.05;
+      return Infinity;
     }
-    if (T > S) return Infinity;
-    return d * (1 + T * 0.12);
+    if (skill === 'advanced') {
+      if (T === 4) return d * 40;
+      if (T === 2) return d * 0.07;
+      if (T === 3) return d * 0.05;
+      return d * (0.14 + Math.min(T, 1) * 0.04);
+    }
+    if (skill === 'expert') {
+      return d;
+    }
+    /* Unknown skill value: treat as low intermediate */
+    if (T === 0) return d * 0.08;
+    if (T === 1) return d * 0.06;
+    return Infinity;
   }
 
   /** Return trip: maximize lifts — each piste segment pays a huge base penalty vs lifts. */
