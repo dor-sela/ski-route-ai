@@ -102,11 +102,17 @@
 
   function pisteColor(tag) {
     const t = String(tag).toLowerCase();
-    if (t.includes('novice') || t === 'easy' || t.includes('beginner') || t === 'elementary')
+    if (
+      t === 'green' ||
+      t.includes('novice') ||
+      t === 'easy' ||
+      t.includes('beginner') ||
+      t === 'elementary'
+    )
       return '#22c55e';
-    if (t === 'intermediate') return '#3b82f6';
-    if (t === 'advanced') return '#ef4444';
-    if (t.includes('expert') || t === 'extreme' || t.includes('freeride')) return '#171717';
+    if (t === 'blue' || t === 'intermediate') return '#3b82f6';
+    if (t === 'red' || t === 'advanced') return '#ef4444';
+    if (t === 'black' || t.includes('expert') || t === 'extreme' || t.includes('freeride')) return '#171717';
     return '#3b82f6';
   }
 
@@ -185,11 +191,17 @@
   function pisteTierFromTag(tag) {
     if (!tag) return 'blue';
     const t = String(tag).toLowerCase();
-    if (t.includes('novice') || t === 'easy' || t.includes('beginner') || t === 'elementary')
+    if (
+      t === 'green' ||
+      t.includes('novice') ||
+      t === 'easy' ||
+      t.includes('beginner') ||
+      t === 'elementary'
+    )
       return 'green';
-    if (t === 'intermediate') return 'blue';
-    if (t === 'advanced') return 'red';
-    if (t.includes('expert') || t === 'extreme' || t.includes('freeride')) return 'black';
+    if (t === 'blue' || t === 'intermediate') return 'blue';
+    if (t === 'red' || t === 'advanced') return 'red';
+    if (t === 'black' || t.includes('expert') || t === 'extreme' || t.includes('freeride')) return 'black';
     return 'blue';
   }
 
@@ -216,9 +228,8 @@
   }
 
   /**
-   * Forward ski routing: base weight = geographic distance (meters).
-   * Goal-specific skill gates: pistes above allowed tier → Infinity.
-   * Rewards steer Dijkstra toward matching difficulties.
+   * Forward ski routing: cost dominated by piste difficulty vs skill/goal (invalid tier → Infinity).
+   * Lifts (aerialway) use a moderate distance multiplier only — tier rules apply to pistes.
    */
   function skiForwardEdgeWeight(edge, skill, goal) {
     const d = edge.lengthM;
@@ -233,23 +244,23 @@
 
     if (G === 'Comfort') {
       if (T > S) return Infinity;
-      if (T === S) return d * 0.08;
-      return d * 1;
+      if (T === S) return d * 0.06;
+      return d * (1 + (S - T) * 0.35);
     }
     if (G === 'Progression') {
       if (T >= S + 2) return Infinity;
-      if (T === S + 1) return d * 0.04;
-      if (T === S) return d * 0.35;
-      return d * 1.15;
+      if (T === S + 1) return d * 0.03;
+      if (T === S) return d * 0.28;
+      return d * (1.2 + (S - T) * 0.25);
     }
     if (G === 'Relaxed') {
       if (T > S) return Infinity;
-      if (tier === 'green' || tier === 'blue') return d * 0.1;
-      if (tier === 'red') return d * 8;
-      return d * 40;
+      if (tier === 'green' || tier === 'blue') return d * 0.08;
+      if (tier === 'red') return d * 10;
+      return d * 50;
     }
     if (T > S) return Infinity;
-    return d;
+    return d * (1 + T * 0.12);
   }
 
   /** Return trip: maximize lifts — each piste segment pays a huge base penalty vs lifts. */
@@ -704,7 +715,7 @@
 
       if (skill) {
         const skillBody =
-          '<p><strong>Note (skill):</strong> No downhill ski route matches your skill level or route goal. Showing the <strong>lift-based route</strong>.</p>';
+          '<p>Warning: No valid ski route found that matches your selected skill level.</p>';
         const showAscentStrip = mirrorLiftCorridor || elevAscentKnow || liftOnlyForward;
         const txt = showAscentStrip
           ? '<div class="ski-warning-tier-primary">' + skillBody + '</div>' + wrapRouteStructureBlock(buildAscentPopHtml(ascentCtx))
@@ -717,7 +728,7 @@
       } else if (uphill) {
         let txt =
           '<div class="ski-warning-tier-primary">' +
-          '<p><strong>Note (no downhill path):</strong> Downhill ski route unavailable between these points. Displaying the lift-based route to ascend.</p>' +
+          '<p>Note: No downhill ski route available. Displaying a lift-based route to ascend.</p>' +
           '</div>';
         txt += wrapRouteStructureBlock(buildAscentPopHtml(ascentCtx));
         el.forwardRouteWarning.innerHTML = txt;
@@ -1062,6 +1073,7 @@
       skill,
       goal
     );
+    /* Return End→Start: always computed; lifts-only path preferred, else lift-heavy weights (pistes penalized). */
     const ret = routeReturnPreferred(adj, endNode, startNode, skill, goal);
 
     let primaryForward = skiForward;
