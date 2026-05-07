@@ -33,9 +33,8 @@
 
   const ROUTE_MODE = { SKI_FORWARD: 'ski', LIFT_RETURN: 'lift' };
 
-  /** POI tag filters — hotels/huts/chalets (tourism) + eat/drink (amenity). Does not affect piste/lift graph build. */
+  /** Lodging POIs only (tourism) — does not affect piste/lift graph build. */
   const POI_TOURISM_TAGS = new Set(['hotel', 'alpine_hut', 'chalet']);
-  const POI_AMENITY_TAGS = new Set(['restaurant', 'cafe', 'pub', 'bar']);
 
   function normTag(v) {
     return v != null ? String(v).toLowerCase().trim() : '';
@@ -44,10 +43,7 @@
   function tagsSuggestPoi(tags) {
     if (!tags) return false;
     const tourism = normTag(tags.tourism);
-    if (tourism && POI_TOURISM_TAGS.has(tourism)) return true;
-    const amenity = normTag(tags.amenity);
-    if (amenity && POI_AMENITY_TAGS.has(amenity)) return true;
-    return false;
+    return !!(tourism && POI_TOURISM_TAGS.has(tourism));
   }
 
   /**
@@ -65,7 +61,7 @@
       const label =
         tags && tags.name != null && String(tags.name).trim() !== ''
           ? String(tags.name)
-          : 'POI';
+          : 'Hotel';
       out.push({ lat: lat, lon: lon, tags: tags, label: label });
     }
 
@@ -523,7 +519,7 @@
   let lastForwardPath = null;
   /** @type {{ pathNodes: string[], pathEdges: object[] } | null} */
   let lastReturnPath = null;
-  /** null | 'skill' | 'uphill' — forward poly uses alternate highlight color when non-null */
+  /** null | 'skill' | 'uphill' — forward poly highlight when lastForwardPath uses lift fallback */
   let lastForwardLiftReason = null;
   /** @type {L.CircleMarker | null} */
   let activeNodeHighlight = null;
@@ -556,9 +552,11 @@
   }
 
   function ensureRouteLabelCss() {
-    const legacy = document.getElementById('ski-agent-route-css');
-    if (legacy) legacy.remove();
-    const STYLE_ID = 'ski-agent-route-css-v4';
+    ;['ski-agent-route-css', 'ski-agent-route-css-v4'].forEach(function (id) {
+      const n = document.getElementById(id);
+      if (n) n.remove();
+    });
+    const STYLE_ID = 'ski-agent-route-css-v5';
     if (document.getElementById(STYLE_ID)) return;
     const st = document.createElement('style');
     st.id = STYLE_ID;
@@ -571,7 +569,7 @@
       'border-radius:0.25rem;border:1px solid #e2e8f0;}' +
       '.ski-hotel-star-wrap{background:transparent!important;border:none!important;' +
       'font-size:18px;line-height:18px;text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.7);}' +
-      '.ski-hotel-star-wrap .ski-poi-star{color:#bfa76a!important;font-size:17px;line-height:17px;' +
+      '.ski-hotel-star-wrap .ski-poi-star{color:#DAA520!important;font-size:17px;line-height:17px;' +
       'text-shadow:0 1px 3px rgba(0,0,0,.85);}' +
       '.leaflet-tooltip.ski-hotel-tip{' +
       'font-size:11px;font-weight:600;background:#fffbeb;color:#7c2d12;padding:2px 6px;' +
@@ -581,6 +579,10 @@
       '.forward-route-warning.forward-route-warning--skill{' +
       'border:2px solid rgba(254,202,202,.95);background:rgba(153,27,27,.96);color:#fff;' +
       'box-shadow:0 0 0 1px rgba(0,0,0,.35);}' +
+      '.forward-route-warning.forward-route-warning--skill-only{' +
+      'border:2px solid #fecaca!important;background:#dc2626!important;color:#fff!important;' +
+      'box-shadow:0 2px 10px rgba(0,0,0,.4);font-weight:700;}' +
+      '.forward-route-warning.forward-route-warning--skill-only p{margin:0;line-height:1.5;}' +
       '.forward-route-warning.forward-route-warning--uphill{' +
       'border:2px solid rgba(251,191,36,.65);background:rgba(120,53,15,.88);color:#fef3c7;}' +
       '.ski-forward-mirror-note{margin-top:12px;padding:10px 12px;border-radius:8px;' +
@@ -596,14 +598,10 @@
     document.head.appendChild(st);
   }
 
-  /** Node click radius scales with zoom so they stay easy to click when zoomed in. */
+  /** Graph node radius: zoom > 14 → 6, else → 3 */
   function nodeRadiusForZoom(z) {
-    if (!Number.isFinite(z)) return 4;
-    if (z >= 17) return 9;
-    if (z >= 16) return 8;
-    if (z >= 15) return 6;
-    if (z >= 14) return 5;
-    return 4;
+    if (!Number.isFinite(z)) return 3;
+    return z > 14 ? 6 : 3;
   }
 
   function applyGraphNodeRadiiFromZoom() {
@@ -614,14 +612,14 @@
     });
   }
 
-  /** POI markers from JSON (muted gold ★ via .ski-poi-star); tooltip = name or “POI”. */
+  /** POI markers: hotels/huts/chalets only; gold ★ (#DAA520); tooltip = name or “Hotel”. */
   function drawHotelMarkersFromElements(elements) {
     if (!hotelsLayerGroup) return;
     hotelsLayerGroup.clearLayers();
 
     const starIcon = L.divIcon({
       className: 'ski-hotel-star-wrap',
-      html: '<span class="ski-poi-star" style="color:#bfa76a" aria-hidden="true">★</span>',
+      html: '<span class="ski-poi-star" style="color:#DAA520" aria-hidden="true">★</span>',
       iconSize: [18, 18],
       iconAnchor: [9, 9],
     });
@@ -694,16 +692,20 @@
 
     if (el.forwardHeaderTitle) {
       if (skill) {
-        el.forwardHeaderTitle.textContent = '🚠 Lifts — above your ability';
+        el.forwardHeaderTitle.textContent = 'Forward Route';
       } else if (uphill) {
-        el.forwardHeaderTitle.textContent = '🚠 Mostly lifts';
+        el.forwardHeaderTitle.textContent = '🚠 Uphill / Lift-Only Route';
       } else {
         el.forwardHeaderTitle.textContent = 'Forward Route';
       }
     }
 
     if (el.forwardRouteWarning) {
-      el.forwardRouteWarning.classList.remove('forward-route-warning--skill', 'forward-route-warning--uphill');
+      el.forwardRouteWarning.classList.remove(
+        'forward-route-warning--skill',
+        'forward-route-warning--skill-only',
+        'forward-route-warning--uphill'
+      );
       el.forwardRouteWarning.style.display = '';
 
       const ascentCtx = {
@@ -714,14 +716,12 @@
       };
 
       if (skill) {
-        const skillBody =
+        el.forwardRouteWarning.innerHTML =
           '<p>Warning: No valid ski route found that matches your selected skill level.</p>';
-        const showAscentStrip = mirrorLiftCorridor || elevAscentKnow || liftOnlyForward;
-        const txt = showAscentStrip
-          ? '<div class="ski-warning-tier-primary">' + skillBody + '</div>' + wrapRouteStructureBlock(buildAscentPopHtml(ascentCtx))
-          : skillBody;
-        el.forwardRouteWarning.innerHTML = txt;
-        el.forwardRouteWarning.classList.add('forward-route-warning--skill');
+        el.forwardRouteWarning.classList.add(
+          'forward-route-warning--skill',
+          'forward-route-warning--skill-only'
+        );
         el.forwardRouteWarning.classList.remove('hidden');
         el.forwardRouteWarning.style.display = 'block';
         scrollForwardNoticeIntoView();
@@ -1083,19 +1083,20 @@
     if (skiForward) {
       primaryForward = skiForward;
       lastForwardLiftReason = null;
+    } else if (physicalSki) {
+      /* Fail-State 1: downhill geometry exists but no route within skill — no lift-based forward fallback. */
+      lastForwardLiftReason = 'skill';
+      primaryForward = null;
     } else if (liftForward) {
+      /* Fail-State 2: no physical downhill path — lift-heavy forward (Mode 2). */
       primaryForward = liftForward;
-      if (physicalSki) {
-        lastForwardLiftReason = 'skill';
-      } else {
-        lastForwardLiftReason = 'uphill';
-      }
+      lastForwardLiftReason = 'uphill';
     } else {
       primaryForward = null;
       lastForwardLiftReason = null;
     }
 
-    if (lastForwardLiftReason === 'skill' || lastForwardLiftReason === 'uphill') {
+    if (lastForwardLiftReason === 'uphill') {
       const ps = parseKey(startNode);
       const pe = parseKey(endNode);
       const zs = approximateElevationM(ps.lat, ps.lng);
@@ -1136,6 +1137,8 @@
       pathToListItems(lastForwardPath, el.forwardList, false);
       bindForwardListFlyTo();
       showForwardPolyline();
+    } else if (lastForwardLiftReason === 'skill') {
+      el.forwardList.innerHTML = '';
     } else {
       const li = document.createElement('li');
       if (!physicalSki && !liftForward) {
@@ -1151,37 +1154,7 @@
     }
 
     el.returnList.innerHTML = '';
-    if (lastForwardLiftReason === 'skill') {
-      const note = document.createElement('li');
-      note.textContent =
-        'Return: lifts End→Start (details in the notice above).';
-      note.style.marginBottom = '0.35rem';
-      note.style.color = '#e9d79c';
-      note.style.listStyle = 'none';
-      el.returnList.appendChild(note);
-      if (lastReturnPath) pathToListItems(lastReturnPath, el.returnList, true);
-      else {
-        const li = document.createElement('li');
-        li.textContent = 'No return route via lifts found.';
-        el.returnList.appendChild(li);
-      }
-    } else if (lastForwardLiftReason === 'uphill') {
-      const note = document.createElement('li');
-      note.textContent =
-        mirrorLiftCorridor
-          ? 'Return: same lifts reversed (see notice above).'
-          : 'Return: lifts End→Start.';
-      note.style.marginBottom = '0.35rem';
-      note.style.color = '#e9d79c';
-      note.style.listStyle = 'none';
-      el.returnList.appendChild(note);
-      if (lastReturnPath) pathToListItems(lastReturnPath, el.returnList, true);
-      else {
-        const li = document.createElement('li');
-        li.textContent = 'No return route via lifts found.';
-        el.returnList.appendChild(li);
-      }
-    } else if (lastReturnPath) {
+    if (lastReturnPath) {
       pathToListItems(lastReturnPath, el.returnList, false);
     } else {
       const li = document.createElement('li');
@@ -1238,8 +1211,17 @@
     }
   }
 
+  function onSkillOrGoalChange() {
+    if (startNode && endNode && currentAdj.adj && currentAdj.adj.size > 0) {
+      runFindRoute();
+    }
+  }
+
   el.findBtn.addEventListener('click', runFindRoute);
   el.resetBtn.addEventListener('click', resetSearch);
+
+  el.skill.addEventListener('change', onSkillOrGoalChange);
+  el.goal.addEventListener('change', onSkillOrGoalChange);
 
   el.forwardHeader.addEventListener('click', showForwardPolyline);
 
