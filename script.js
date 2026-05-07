@@ -247,10 +247,15 @@
     return Infinity;
   }
 
-  /** Return trip: maximize lifts — each piste segment pays a huge base penalty vs lifts. */
-  function liftReturnEdgeWeight(edge) {
+  /**
+   * Return trip (lift mode): strongly prefer lifts; any piste must pass the same skill gates as forward
+   * (forbidden difficulty → Infinity). Allowed pistes pay a huge base penalty vs lifts.
+   */
+  function liftReturnEdgeWeight(edge, skill, goal) {
     if (edge.isLift) return edge.lengthM * 0.001;
-    return edge.lengthM + 5e8;
+    const skillW = skiForwardEdgeWeight(edge, skill, goal);
+    if (!Number.isFinite(skillW) || skillW === Infinity) return Infinity;
+    return 5e8 + skillW;
   }
 
   /** Shortest End→Start using lift edges only (max lifts when fully connected). */
@@ -277,7 +282,7 @@
   }
 
   function edgeWeight(edge, mode, skill, goal) {
-    if (mode === ROUTE_MODE.LIFT_RETURN) return liftReturnEdgeWeight(edge);
+    if (mode === ROUTE_MODE.LIFT_RETURN) return liftReturnEdgeWeight(edge, skill, goal);
     return skiForwardEdgeWeight(edge, skill, goal);
   }
 
